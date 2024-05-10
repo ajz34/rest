@@ -432,7 +432,7 @@ impl BasCell {
             cint_data.initial_r2c(&atm, natm, &bas, nbas, &env);
             //cint_data.set_cint_type(CintType::Spheric);
             cint_data.set_cint_type(&cint_type);
-            cint_data.cint1e_ovlp_optimizer_rust();
+            cint_data.int1e_ovlp_optimizer_rust();
             let num_bas = self.coefficients.len();
             let num_pri = self.exponents.len();
             let buf:Vec<f64> = cint_data.cint_ij(0, 0,&String::from("ovlp"));
