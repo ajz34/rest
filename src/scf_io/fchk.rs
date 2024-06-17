@@ -171,6 +171,7 @@ impl SCF {
         let shell_type_fac = match self.mol.cint_type {
             CintType::Spheric => -1,
             CintType::Cartesian => 1,
+            _ => panic!("Not implemented CintType {:?}", self.mol.cint_type),
         };
         self.mol.basis4elem.iter().enumerate().for_each(|(i_atom,ibas)| {
             ibas.electron_shells.iter().for_each(|ibascell| {

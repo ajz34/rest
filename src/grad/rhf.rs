@@ -346,7 +346,7 @@ impl Gradient {
 
         let n_basis_shell = self.mol.cint_bas.len();
         let n_auxbas_shell = self.mol.cint_aux_bas.len();
-        cint_data.cint2c2e_ip1_optimizer_rust();
+        cint_data.int2c2e_ip1_optimizer_rust();
         let mut aux_v = MatrixFull::new([n_auxbas,n_auxbas],0.0);
         for l in 0..n_auxbas_shell {
             let basis_start_l = self.mol.cint_aux_fdqc[l][0];
@@ -391,9 +391,9 @@ impl Gradient {
         let mut cint_data = self.mol.initialize_cint(true);
 
         if cur_op == &String::from("ip1") {
-            cint_data.cint3c2e_ip1_optimizer_rust();
+            cint_data.int3c2e_ip1_optimizer_rust();
         } else if cur_op == &String::from("ip2") {
-            cint_data.cint3c2e_ip2_optimizer_rust();
+            cint_data.int3c2e_ip2_optimizer_rust();
 
         } else {
             panic!("No such operation: {}", cur_op)

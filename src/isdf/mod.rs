@@ -322,7 +322,7 @@ pub fn fourcenter_after_isdf(k_mu: usize, mol: &Molecule, grids: &dft::Grids) ->
     let n_basis_shell = mol.cint_bas.len();
     let n_auxbas_shell = mol.cint_aux_bas.len();
     let mut ri3fn = RIFull::new([nao,nao,nri],0.0);
-    cint_data.cint2c2e_optimizer_rust();
+    cint_data.int2c2e_optimizer_rust();
     let mut ri_v_ri = MatrixFull::new([nri,nri],0.0);
     for l in 0..n_auxbas_shell {
         let basis_start_l = mol.cint_aux_fdqc[l][0];
@@ -341,7 +341,7 @@ pub fn fourcenter_after_isdf(k_mu: usize, mol: &Molecule, grids: &dft::Grids) ->
 
         }
     }
-    cint_data.cint3c2e_optimizer_rust();
+    cint_data.int3c2e_optimizer_rust();
     for k in 0..n_auxbas_shell {
         let basis_start_k = mol.cint_aux_fdqc[k][0];
         let basis_len_k = mol.cint_aux_fdqc[k][1];
@@ -407,7 +407,7 @@ pub fn error_isdf(k_mu: Range<usize>, scf_data: &SCF) -> (Vec<usize>,Vec<f64>, V
         let mut mat_full = 
             ERIFull::new([nbas,nbas,nbas,nbas],0.0);
         let nbas_shell = mol.cint_bas.len();
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
         for l in 0..nbas_shell {
             let bas_start_l = mol.cint_fdqc[l][0];
             let bas_len_l = mol.cint_fdqc[l][1];
@@ -559,7 +559,7 @@ pub fn prepare_for_ri_isdf(k_mu: usize, mol: &Molecule, grids: &dft::Grids) -> R
     let mut cint_data = mol.initialize_cint(true);
     let n_basis_shell = mol.cint_bas.len();
     let n_auxbas_shell = mol.cint_aux_bas.len();
-    cint_data.cint2c2e_optimizer_rust();
+    cint_data.int2c2e_optimizer_rust();
     let mut ri3fn = RIFull::new([nao,nao,nri],0.0);
     let mut ri_v_ri = MatrixFull::new([nri,nri],0.0);
     for l in 0..n_auxbas_shell {
@@ -579,7 +579,7 @@ pub fn prepare_for_ri_isdf(k_mu: usize, mol: &Molecule, grids: &dft::Grids) -> R
 
         }
     }
-    cint_data.cint3c2e_optimizer_rust();
+    cint_data.int3c2e_optimizer_rust();
     for k in 0..n_auxbas_shell {
         let basis_start_k = mol.cint_aux_fdqc[k][0];
         let basis_len_k = mol.cint_aux_fdqc[k][1];
@@ -919,7 +919,7 @@ pub fn prepare_for_ri_isdf_atoms(k_mu: usize, mol: &Molecule, grids: &dft::Grids
     let mut cint_data = mol.initialize_cint(true);
     let n_basis_shell = mol.cint_bas.len();
     let n_auxbas_shell = mol.cint_aux_bas.len();
-    cint_data.cint2c2e_optimizer_rust();
+    cint_data.int2c2e_optimizer_rust();
     let mut ri3fn = RIFull::new([nao,nao,nri],0.0);
     let mut ri_v_ri = MatrixFull::new([nri,nri],0.0);
     for l in 0..n_auxbas_shell {
@@ -939,7 +939,7 @@ pub fn prepare_for_ri_isdf_atoms(k_mu: usize, mol: &Molecule, grids: &dft::Grids
 
         }
     }
-    cint_data.cint3c2e_optimizer_rust();
+    cint_data.int3c2e_optimizer_rust();
     for k in 0..n_auxbas_shell {
         let basis_start_k = mol.cint_aux_fdqc[k][0];
         let basis_len_k = mol.cint_aux_fdqc[k][1];
@@ -1109,7 +1109,7 @@ pub fn prepare_m_isdf(k_mu: usize, mol: &Molecule, grids: &dft::Grids) -> (Matri
     let n_basis_shell = mol.cint_bas.len();
     let n_auxbas_shell = mol.cint_aux_bas.len();
     let mut ri3fn = RIFull::new([nao,nao,nri],0.0);
-    cint_data.cint2c2e_optimizer_rust();
+    cint_data.int2c2e_optimizer_rust();
     let mut ri_v_ri = MatrixFull::new([nri,nri],0.0);
     for l in 0..n_auxbas_shell {
         let basis_start_l = mol.cint_aux_fdqc[l][0];
@@ -1128,7 +1128,7 @@ pub fn prepare_m_isdf(k_mu: usize, mol: &Molecule, grids: &dft::Grids) -> (Matri
 
         }
     }
-    cint_data.cint3c2e_optimizer_rust();
+    cint_data.int3c2e_optimizer_rust();
     for k in 0..n_auxbas_shell {
         let basis_start_k = mol.cint_aux_fdqc[k][0];
         let basis_len_k = mol.cint_aux_fdqc[k][1];

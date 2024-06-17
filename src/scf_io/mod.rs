@@ -4255,7 +4255,7 @@ pub fn vj_on_the_fly_par(mol: &Molecule, dm: &Vec<MatrixFull<f64>>) -> Vec<Matri
     par_tasks.par_iter().for_each_with(sender, |s,task_range| {
         //rayon::current_thread_index();
         let mut cint_data = mol.initialize_cint(false);
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
 
         let mut out_submatrix = Vec::new();
 

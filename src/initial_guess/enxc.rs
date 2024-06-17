@@ -448,7 +448,7 @@ pub fn evaluate_primitive_enxc_operator(enxc: &mut MatrixUpper<f64>,
     cint_data.set_cint_type(cint_type);
     let nenxc = enxcbas.len() as i32;
     cint_data.initial_r2c_with_ecp(&final_cint_atm, natm, &final_cint_bas, nbas_shell, enxcbas, nenxc, &final_cint_env);
-    cint_data.cint1e_ecp_optimizer_rust();
+    // cint_data.int1e_ecp_optimizer_rust();
     let mut cur_op = String::from("ecp");
 
     //now fill the ENXC matrix

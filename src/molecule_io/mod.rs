@@ -47,7 +47,8 @@ pub fn get_basis_name(ang: usize, ctype: &CintType, index: usize) -> String {
     };
     match ctype {
         CintType::Spheric => {ang_name = format!("{}-{}",ang_name, index)},
-        CintType::Cartesian => {ang_name = format!("{}-{}",ang_name, index)}, 
+        CintType::Cartesian => {ang_name = format!("{}-{}",ang_name, index)},
+        _ => panic!("Not implemented CintType {ctype:?}"),
     };
     ang_name
 }
@@ -161,7 +162,9 @@ impl Molecule {
         println!("cint_aux_env: {:?}", self.cint_aux_env);
         println!("cint_type: {:}", match self.cint_type {
             CintType::Spheric => "Spheric",
-            CintType::Cartesian => "Cartesian"})
+            CintType::Cartesian => "Cartesian",
+            _ => panic!("Not implemented CintType {:?}", self.cint_type),
+        });
     }
 
     pub fn build(ctrl_file: String) -> anyhow::Result<Molecule> {
@@ -519,6 +522,7 @@ impl Molecule {
                 let (ang,tmp_bas_num) = match &cint_type {
                     CintType::Cartesian => {let ang = tmp_bas_vec[1] as usize; (ang,(ang+1)*(ang+2)/2)},
                     CintType::Spheric => {let ang = tmp_bas_vec[1] as usize; (ang, ang*2+1)},
+                    _ => panic!("Not implemented CintType {cint_type:?}"),
                 };
                 let mut tmp_len = 0;
                 let tmp_start = if aux_cint_fdqc.len()==0 {0} 
@@ -685,6 +689,7 @@ impl Molecule {
                 let (ang,tmp_bas_num) = match &cint_type {
                     CintType::Cartesian => {let ang = tmp_bas_vec[1] as usize; (ang,(ang+1)*(ang+2)/2)},
                     CintType::Spheric => {let ang = tmp_bas_vec[1] as usize; (ang, ang*2+1)},
+                    _ => panic!("Not implemented CintType {cint_type:?}"),
                 };
                 let mut tmp_len = 0;
                 let tmp_start = if cint_fdqc.len()==0 {0} 
@@ -964,7 +969,7 @@ impl Molecule {
             //println!("Debug: The Kinetic matrix:");
             //mat_global.formated_output(5, "lower".to_string());
             cint_data.cint_del_optimizer_rust();
-            cint_data.cint1e_nuc_optimizer_rust();
+            cint_data.int1e_nuc_optimizer_rust();
             let cur_op = String::from("nuclear");
             //if let Some(ecpbas) = &self.cint_ecpbas {
             //    cur_op_list.push(String::from("ecp"));
@@ -1012,7 +1017,7 @@ impl Molecule {
                 });
             }
             if let Some(ecpbas) = &self.cint_ecpbas {
-                cint_data.cint1e_ecp_optimizer_rust();
+                // cint_data.int1e_ecp_optimizer_rust();
                 let cur_op = String::from("ecp");
                  for j in 0..nbas_shell {
                      let bas_start_j = self.cint_fdqc[j][0];
@@ -1076,7 +1081,7 @@ impl Molecule {
 
         let mut cint_data = self.initialize_cint(false);
         let nbas_shell = self.cint_bas.len();
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
         for j in 0..nbas_shell {
             let bas_start_j = self.cint_fdqc[j][0];
             let bas_len_j = self.cint_fdqc[j][1];
@@ -1117,7 +1122,7 @@ impl Molecule {
 
         let mut cint_data = self.initialize_cint(false);
         let nbas_shell = self.cint_bas.len();
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
         for j in 0..nbas_shell {
             let bas_start_j = self.cint_fdqc[j][0];
             let bas_len_j = self.cint_fdqc[j][1];
@@ -1217,7 +1222,7 @@ impl Molecule {
 
         let mut cint_data = self.initialize_cint(false);
         let nbas_shell = self.cint_bas.len();
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
         for j in 0..nbas_shell {
             let bas_start_j = self.cint_fdqc[j][0];
             let bas_len_j = self.cint_fdqc[j][1];
@@ -1315,7 +1320,7 @@ impl Molecule {
         let mut mat_full = 
             ERIFull::new([nbas,nbas,nbas,nbas],0.0);
         let nbas_shell = self.cint_bas.len();
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
         for l in 0..nbas_shell {
             let bas_start_l = self.cint_fdqc[l][0];
             let bas_len_l = self.cint_fdqc[l][1];
@@ -1373,7 +1378,7 @@ impl Molecule {
         let npair = nbas*(nbas+1)/2;
         let mut mat_full = ERIFold4::new([npair,npair],0.0);
         let nbas_shell = self.cint_bas.len();
-        cint_data.cint2e_optimizer_rust();
+        cint_data.int2e_optimizer_rust();
         for l in 0..nbas_shell {
             let bas_start_l = self.cint_fdqc[l][0];
             let bas_len_l = self.cint_fdqc[l][1];
@@ -1427,7 +1432,7 @@ impl Molecule {
         let mut ri3fn = RIFull::new([n_basis,n_basis,n_auxbas],0.0);
         let n_basis_shell = self.cint_bas.len();
         let n_auxbas_shell = self.cint_aux_bas.len();
-        cint_data.cint3c2e_optimizer_rust();
+        cint_data.int3c2e_optimizer_rust();
         for k in 0..n_auxbas_shell {
             let basis_start_k = self.cint_aux_fdqc[k][0];
             let basis_len_k = self.cint_aux_fdqc[k][1];
@@ -1540,7 +1545,7 @@ impl Molecule {
         let n_auxbas = self.num_auxbas;
         let n_basis_shell = self.cint_bas.len();
         let n_auxbas_shell = self.cint_aux_bas.len();
-        cint_data.cint2c2e_optimizer_rust();
+        cint_data.int2c2e_optimizer_rust();
         let mut aux_v = MatrixFull::new([n_auxbas,n_auxbas],0.0);
         for l in 0..n_auxbas_shell {
             let basis_start_l = self.cint_aux_fdqc[l][0];
@@ -1573,7 +1578,7 @@ impl Molecule {
         let (sender, receiver) = channel();
         self.cint_aux_fdqc.par_iter().enumerate().for_each_with(sender,|s,(l,fdqc)| {
             let mut cint_data = self.initialize_cint(true);
-            cint_data.cint2c2e_optimizer_rust();
+            cint_data.int2c2e_optimizer_rust();
             let basis_start_l = fdqc[0];
             let basis_len_l = fdqc[1];
             let gl  = l + n_basis_shell;

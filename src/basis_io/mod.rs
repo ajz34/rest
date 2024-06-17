@@ -7,6 +7,7 @@ use serde_json::{Result,Value};
 use anyhow;
 use tensors::{MathMatrix,ParMathMatrix};
 use tensors::matrix_blas_lapack::_dgemm_nn_serial;
+use core::panic;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs;
@@ -427,12 +428,13 @@ impl BasCell {
             let (ang,n_len) = match &cint_type {
                 CintType::Cartesian => {let ang = tmp_ang as usize; (ang,(ang+1)*(ang+2)/2)},
                 CintType::Spheric => {let ang = tmp_ang as usize; (ang, ang*2+1)},
+                _ => panic!("Not implemented CintType {cint_type:?}"),
             };
             //let n_len = (tmp_ang*2+1) as usize;
             cint_data.initial_r2c(&atm, natm, &bas, nbas, &env);
             //cint_data.set_cint_type(CintType::Spheric);
             cint_data.set_cint_type(&cint_type);
-            cint_data.cint1e_ovlp_optimizer_rust();
+            cint_data.int1e_ovlp_optimizer_rust();
             let num_bas = self.coefficients.len();
             let num_pri = self.exponents.len();
             let buf:Vec<f64> = cint_data.cint_ij(0, 0,&String::from("ovlp"));
