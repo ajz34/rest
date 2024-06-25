@@ -66,6 +66,8 @@ rustdoc-args = [
 [dev-dependencies]
 criterion = "0.4"
 
+[profile.dev]
+opt-level = 2
 
 [[bench]]
 name = "bench_tensors"
