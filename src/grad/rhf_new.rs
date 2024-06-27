@@ -1,17 +1,199 @@
+use ndarray::{prelude::*, StrideShape};
+use tensors::{MatrixFull, RIFull};
+use crate::scf_io;
+use crate::scf_io::SCF;
+use crate::Molecule;
+use rest_libcint::prelude::*;
 
+use super::rhf::Gradient;
+
+/// Transform ndarray c-contiguous to f-contiguous.
+/// 
+/// Utility function. Only clone data when input is not f-contiguous. 
+pub fn ndarray_to_colmajor<A, D> (arr: Array<A, D>) -> Array<A, D>
+where
+    A: Clone,
+    D: Dimension,
+{
+    let arr = arr.reversed_axes();  // data not copied
+    if arr.is_standard_layout() {
+        // arr is f-contiguous = reversed arr is c-contiguous
+        // CowArray `into_owned` will not copy if own data, but will copy if it represents view
+        // So, though `arr.as_standard_layout().reversed_axes().into_owned()` works, it clones data instead of move it
+        return arr.reversed_axes();  // data not copied
+    } else {
+        // arr is not f-contiguous
+        // make reversed arr c-contiguous, then reverse arr again
+        return arr.as_standard_layout().reversed_axes().into_owned();
+    }
+}
+
+/// Gradient structure and values for RHF method.
+pub struct RIRHFGradient<'a> {
+    pub scf_data: &'a SCF,
+    pub de_nuc: MatrixFull<f64>,
+    pub de_ovlp: MatrixFull<f64>,
+    pub de_hcore: MatrixFull<f64>,
+    pub de_j: MatrixFull<f64>,
+    pub de_k: MatrixFull<f64>,
+    pub de_jaux: MatrixFull<f64>,
+    pub de_kaux: MatrixFull<f64>,
+}
+
+impl<'a> RIRHFGradient<'a> {
+    pub fn new(scf_data: &'a SCF) -> RIRHFGradient<'a> {
+        match scf_data.scftype {
+            scf_io::SCFType::RHF => {},
+            _ => panic!("SCFtype is not sutiable for RHF gradient.")
+        };
+        RIRHFGradient {
+            scf_data,
+            de_nuc: MatrixFull::empty(),
+            de_ovlp: MatrixFull::empty(),
+            de_hcore: MatrixFull::empty(),
+            de_j: MatrixFull::empty(),
+            de_k: MatrixFull::empty(),
+            de_jaux: MatrixFull::empty(),
+            de_kaux: MatrixFull::empty(),
+        }
+    }
+
+    /// Derivatives of nuclear repulsion energy with reference to nuclear coordinates
+    pub fn calc_de_nuc(&mut self) -> &mut Self {
+        let mol = &self.scf_data.mol;
+        self.de_nuc = mol.geom.calc_nuc_energy_deriv();
+        return self;
+    }
+
+    pub fn calc_de_ovlp(&mut self) -> &mut Self {
+        // preparation
+        let mol = &self.scf_data.mol;
+        let mut cint_data = mol.initialize_cint(false);
+
+        // dme0
+        let mo_coeff = {
+            let mo_coeff = &self.scf_data.eigenvectors[0];
+            ArrayView2::from_shape(mo_coeff.size.f(), &mo_coeff.data).unwrap()
+        };
+        let mo_occ = {
+            let mo_occ = &self.scf_data.occupation[0];
+            ArrayView1::from_shape(mo_occ.len(), &mo_occ).unwrap()
+        };
+        let mo_energy = {
+            let mo_energy = &self.scf_data.eigenvalues[0];
+            ArrayView1::from_shape(mo_energy.len(), &mo_energy).unwrap()
+        };
+        let dme0 = get_dme0(mo_coeff, mo_occ, mo_energy);
+
+        // tsr_int1e_ipovlp
+        let (out, shape) = cint_data.integral_s1::<int1e_ipovlp>(None);
+        let out = Array::from_shape_vec(shape.f(), out).unwrap();
+        let tsr_int1e_ipovlp = out.into_dimensionality::<Ix3>().unwrap();
+
+        // dao_ovlp
+        let dao_ovlp = get_grad_dao_ovlp(tsr_int1e_ipovlp.view(), dme0.view());
+
+        // de_ovlp
+        let natm = mol.geom.elem.len();
+        let mut de_ovlp = Array2::<f64>::zeros([3, natm].f());
+        let ao_slice = mol.aoslice_by_atom();
+
+        for atm in 0..natm {
+            let [_, _, p0, p1] = ao_slice[atm].clone().try_into().unwrap();
+            de_ovlp.index_axis_mut(Axis(1), atm)
+                .assign(&dao_ovlp.slice(s![p0..p1, ..]).sum_axis(Axis(0)));
+        }
+        let de_ovlp = MatrixFull::from_vec([3, natm], de_ovlp.into_raw_vec()).unwrap();
+        self.de_ovlp = de_ovlp;
+        return self;
+    }
+
+
+}
+
+/* #region  */
+
+/* #region Matrix Algorithms in RI-RHF code */
+
+pub fn get_dme0<'a> (
+    mo_coeff: ArrayView2<'a, f64>,
+    mo_occ: ArrayView1<'a, f64>,
+    mo_energy: ArrayView1<'a, f64>,
+) -> Array2<f64>
+{
+    // energy-weighted density matrix
+    // E_{\mu \nu} &= C_{\mu i} \varepsilon_i n_i C_{\nu i}
+
+    // python code: mo_coeff * mo_occ * mo_energy @ mo_coeff.T
+
+    let dme0 = (
+        mo_coeff.to_owned()
+        * mo_occ.insert_axis(Axis(0))
+        * mo_energy.insert_axis(Axis(0))
+    ).dot(&mo_coeff.t());
+    return ndarray_to_colmajor(dme0);
+}
+
+pub fn get_grad_dao_ovlp<'a> (
+    tsr_int1e_ipovlp: ArrayView3<'a, f64>,
+    dme0: ArrayView2<'a, f64>,
+) -> Array2<f64>
+{
+    // AO derivative matrix contribution of ovlp
+    // \Delta_{t \mu} &\leftarrow - 2 (\partial_t \mu | \nu) E_{\mu \nu}
+
+    // python code (PySCF convention):
+    // np.einsum("tuv, uv -> tu", int1e_ipovlp, dme0)
+    // equiv code:
+    // 2 * (int1e_ipovlp * dme0).sum(axis=-1)
+    let dao_ovlp = 2.0 * (
+        tsr_int1e_ipovlp.to_owned()
+        * dme0.insert_axis(Axis(2))
+    ).sum_axis(Axis(1));
+    return ndarray_to_colmajor(dao_ovlp);
+}
+
+/* #endregion */
 
 #[cfg(test)]
 #[allow(non_snake_case)] 
-mod stress_grad_rhf_C12H26 {
-    use crate::scf_io::{self, scf_without_build, SCF};
+mod debug_nh3 {
+    use super::*;
+    use crate::scf_io::scf_without_build;
     use crate::ctrl_io::InputKeywords;
-    use crate::molecule_io::Molecule;
 
     #[test]
     fn test()
     {
         let mut scf_data = initialize_nh3();
-        println!("{:?}", scf_data.eigenvectors);
+        let mut scf_grad = RIRHFGradient::new(&scf_data);
+        scf_grad.calc_de_nuc();
+        println!("=== de_nuc ===");
+        let de_nuc = scf_grad.de_nuc.clone();
+        let de_nuc = Array2::from_shape_vec(de_nuc.size.f(), de_nuc.data).unwrap();
+        println!("{:12.6?}", de_nuc.t());
+
+        let mo_coeff = scf_data.eigenvectors[0].clone();
+        let mo_energy = scf_data.eigenvalues[0].clone();
+        let mo_occ = scf_data.occupation[0].clone();
+        let mo_coeff = Array2::from_shape_vec(mo_coeff.size.f(), mo_coeff.data).unwrap();
+        println!("=== mo_coeff ===");
+        println!("{:?}", mo_coeff.strides());
+        let mo_coeff = mo_coeff.into_owned();
+        println!("{:?}", mo_coeff.strides());
+
+        let mo_energy = Array1::from_vec(mo_energy);
+        let mo_occ = Array1::from_vec(mo_occ);
+        let dme0 = get_dme0(mo_coeff.view(), mo_occ.view(), mo_energy.view());
+        println!("=== dme0 ===");
+        println!("{:12.6?}", dme0);
+
+        println!("=== de_ovlp ===");
+        scf_grad.calc_de_ovlp();
+        let de_ovlp = scf_grad.de_ovlp.clone();
+        let de_ovlp = Array2::from_shape_vec(de_ovlp.size.f(), de_ovlp.data).unwrap();
+        println!("{:12.6?}", de_ovlp.t());
+
     }
 
     fn initialize_nh3() -> SCF
@@ -58,6 +240,20 @@ mod stress_grad_rhf_C12H26 {
         let mut scf_data = scf_io::SCF::build(mol);
         scf_without_build(&mut scf_data);
         return scf_data;
+    }
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod stress_grad_c12h26 {
+    use super::*;
+    use crate::scf_io::scf_without_build;
+    use crate::ctrl_io::InputKeywords;
+
+    #[test]
+    fn test()
+    {
+        let mut scf_data = initialize_c12h26();
     }
 
     fn initialize_c12h26() -> SCF
