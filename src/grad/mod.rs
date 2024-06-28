@@ -1,7 +1,7 @@
-pub mod rhf;
-pub mod uhf;
-pub mod rks;
-pub mod uks;
+// pub mod rhf;
+// pub mod uhf;
+// pub mod rks;
+// pub mod uks;
 pub mod rhf_new;
 
 use crate::{collect_total_energy, constants::{ANG, EV}, performance_essential_calculations, scf_io::{initialize_scf, scf_without_build, SCF}, utilities};

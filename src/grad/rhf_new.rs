@@ -1,32 +1,11 @@
+use std::ops::AddAssign;
+
 use ndarray::{prelude::*, StrideShape};
 use tensors::{MatrixFull, RIFull};
 use crate::scf_io;
 use crate::scf_io::SCF;
 use crate::Molecule;
 use rest_libcint::prelude::*;
-
-use super::rhf::Gradient;
-
-/// Transform ndarray c-contiguous to f-contiguous.
-/// 
-/// Utility function. Only clone data when input is not f-contiguous. 
-pub fn ndarray_to_colmajor<A, D> (arr: Array<A, D>) -> Array<A, D>
-where
-    A: Clone,
-    D: Dimension,
-{
-    let arr = arr.reversed_axes();  // data not copied
-    if arr.is_standard_layout() {
-        // arr is f-contiguous = reversed arr is c-contiguous
-        // CowArray `into_owned` will not copy if own data, but will copy if it represents view
-        // So, though `arr.as_standard_layout().reversed_axes().into_owned()` works, it clones data instead of move it
-        return arr.reversed_axes();  // data not copied
-    } else {
-        // arr is not f-contiguous
-        // make reversed arr c-contiguous, then reverse arr again
-        return arr.as_standard_layout().reversed_axes().into_owned();
-    }
-}
 
 /// Gradient structure and values for RHF method.
 pub struct RIRHFGradient<'a> {
@@ -108,10 +87,126 @@ impl<'a> RIRHFGradient<'a> {
         return self;
     }
 
+    pub fn calc_de_hcore(&mut self) -> &mut Self {
+        let mol = &self.scf_data.mol;
+        let natm = mol.geom.elem.len();
+
+        let dm = {
+            let dm = &self.scf_data.density_matrix[0];
+            ArrayView2::from_shape(dm.size.f(), &dm.data).unwrap()
+        };
+        
+        let mut de_hcore = Array2::<f64>::zeros([3, natm].f());
+        let mut gen_deriv_hcore = generator_deriv_hcore(&self.scf_data);
+        for atm in 0..natm {
+            de_hcore.slice_mut(s![.., atm]).assign(
+                &(gen_deriv_hcore(atm) * dm.insert_axis(Axis(2)))
+                .sum_axis(Axis(0)).sum_axis(Axis(0))  // sum first two axis
+            );
+        }
+
+        self.de_hcore = MatrixFull::from_vec(de_hcore.dim().into(), de_hcore.into_raw_vec()).unwrap();
+        return self;
+    }
 
 }
 
-/* #region  */
+pub fn generator_deriv_hcore<'a> (
+    scf_data: &'a SCF
+) -> impl FnMut(usize) -> Array3<f64> + 'a
+{
+    let mut mol = scf_data.mol.clone();
+    let mut cint_data = mol.initialize_cint(false);
+
+    let (out, shape) = cint_data.integral_s1::<int1e_ipkin>(None);
+    let out = Array::from_shape_vec(shape.f(), out).unwrap();
+    let tsr_int1e_ipkin = out.into_dimensionality::<Ix3>().unwrap();
+
+    let (out, shape) = cint_data.integral_s1::<int1e_ipnuc>(None);
+    let out = Array::from_shape_vec(shape.f(), out).unwrap();
+    let tsr_int1e_ipnuc = out.into_dimensionality::<Ix3>().unwrap();
+
+    let h1 = - (tsr_int1e_ipkin + tsr_int1e_ipnuc);
+    let aoslice_by_atom = mol.aoslice_by_atom();
+    let charge_by_atom = crate::geom_io::get_charge(&mol.geom.elem);
+
+    move | atm_id | {
+        let [_, _, p0, p1] = aoslice_by_atom[atm_id].clone().try_into().unwrap();
+        mol.with_rinv_at_nucleus(atm_id, | mol | {
+            let mut cint_data = mol.initialize_cint(false);
+            
+            let (out, shape) = cint_data.integral_s1::<int1e_iprinv>(None);
+            let out = Array::from_shape_vec(shape.f(), out).unwrap();
+            let tsr_int1e_iprinv = out.into_dimensionality::<Ix3>().unwrap();
+
+            let mut vrinv = - (&charge_by_atom)[atm_id] * tsr_int1e_iprinv;
+            vrinv.slice_mut(s![p0..p1, .., ..]).add_assign(&h1.slice(s![p0..p1, .., ..]));
+            vrinv += &vrinv.clone().permuted_axes([1, 0, 2]);
+            return ndarray_to_colmajor(vrinv);
+        })
+    }
+}
+
+/* #region utilities */
+
+/// Transform ndarray c-contiguous to f-contiguous.
+/// 
+/// Utility function. Only clone data when input is not f-contiguous. 
+pub fn ndarray_to_colmajor<A, D> (arr: Array<A, D>) -> Array<A, D>
+where
+    A: Clone,
+    D: Dimension,
+{
+    let arr = arr.reversed_axes();  // data not copied
+    if arr.is_standard_layout() {
+        // arr is f-contiguous = reversed arr is c-contiguous
+        // CowArray `into_owned` will not copy if own data, but will copy if it represents view
+        // So, though `arr.as_standard_layout().reversed_axes().into_owned()` works, it clones data instead of move it
+        return arr.reversed_axes();  // data not copied
+    } else {
+        // arr is not f-contiguous
+        // make reversed arr c-contiguous, then reverse arr again
+        return arr.as_standard_layout().reversed_axes().into_owned();
+    }
+}
+
+#[allow(non_snake_case)]
+impl Molecule {
+    pub fn aoslice_by_atom(&self) -> Vec<[usize; 4]> {
+        use rest_libcint::cint;
+
+        let ATOM_OF = cint::ATOM_OF as usize;
+
+        let cint_data = self.initialize_cint(false);
+        let cint_bas = self.cint_bas.clone();
+
+        let ao_loc = cint_data.cgto_loc();
+        let natm = self.geom.elem.len();
+        let nbas = cint_bas.len();
+        let mut aoslice = vec![[0; 4]; natm];
+
+        // the following code should assume that atoms in `cint_bas` has been sorted by atom index
+        let delimiter = (0..(nbas-1)).into_iter()
+            .filter(|&idx| { cint_bas[idx+1][ATOM_OF] != cint_bas[idx][ATOM_OF] })
+            .collect::<Vec<usize>>();
+        if delimiter.len() != natm - 1 {
+            unimplemented!("Missing basis in atoms. Currently it should be internal problem in program.");
+        }
+        let shl_idx = 0;
+        for atm in 0..natm {
+            let shl0 = if atm == 0 { 0 } else { delimiter[atm-1] + 1 };
+            let shl1 = if atm == natm-1 { nbas } else { delimiter[atm] + 1 };
+            let p0 = ao_loc[shl0];
+            let p1 = ao_loc[shl1];
+            aoslice[atm] = [shl0, shl1, p0, p1];
+        }
+
+        // todo: currently we have not consider missing basis in atom
+        return aoslice;
+    }
+}
+
+/* #endregion */
 
 /* #region Matrix Algorithms in RI-RHF code */
 
@@ -167,26 +262,12 @@ mod debug_nh3 {
     {
         let mut scf_data = initialize_nh3();
         let mut scf_grad = RIRHFGradient::new(&scf_data);
-        scf_grad.calc_de_nuc();
+        
         println!("=== de_nuc ===");
+        scf_grad.calc_de_nuc();
         let de_nuc = scf_grad.de_nuc.clone();
         let de_nuc = Array2::from_shape_vec(de_nuc.size.f(), de_nuc.data).unwrap();
         println!("{:12.6?}", de_nuc.t());
-
-        let mo_coeff = scf_data.eigenvectors[0].clone();
-        let mo_energy = scf_data.eigenvalues[0].clone();
-        let mo_occ = scf_data.occupation[0].clone();
-        let mo_coeff = Array2::from_shape_vec(mo_coeff.size.f(), mo_coeff.data).unwrap();
-        println!("=== mo_coeff ===");
-        println!("{:?}", mo_coeff.strides());
-        let mo_coeff = mo_coeff.into_owned();
-        println!("{:?}", mo_coeff.strides());
-
-        let mo_energy = Array1::from_vec(mo_energy);
-        let mo_occ = Array1::from_vec(mo_occ);
-        let dme0 = get_dme0(mo_coeff.view(), mo_occ.view(), mo_energy.view());
-        println!("=== dme0 ===");
-        println!("{:12.6?}", dme0);
 
         println!("=== de_ovlp ===");
         scf_grad.calc_de_ovlp();
@@ -194,6 +275,11 @@ mod debug_nh3 {
         let de_ovlp = Array2::from_shape_vec(de_ovlp.size.f(), de_ovlp.data).unwrap();
         println!("{:12.6?}", de_ovlp.t());
 
+        println!("=== deriv_hcore ===");
+        scf_grad.calc_de_hcore();
+        let de_hcore = scf_grad.de_hcore.clone();
+        let de_hcore = Array2::from_shape_vec(de_hcore.size.f(), de_hcore.data).unwrap();
+        println!("{:12.6?}", de_hcore.t());
     }
 
     fn initialize_nh3() -> SCF
@@ -219,8 +305,8 @@ mod debug_nh3 {
      start_diis_cycle =     3
      mix_param =            0.8
      max_scf_cycle =        100
-     scf_acc_rho =          1.0e-6
-     scf_acc_eev =          1.0e-9
+     scf_acc_rho =          1.0e-10
+     scf_acc_eev =          1.0e-10
      scf_acc_etot =         1.0e-11
      num_threads =          16
 

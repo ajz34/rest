@@ -1,6 +1,7 @@
 extern crate rest_tensors as tensors;
 
 mod pyrest_molecule_io;
+pub mod with_clause;
 use array_tool::vec::Intersect;
 use pyo3::{pyclass, pymethods};
 use rayon::prelude::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
