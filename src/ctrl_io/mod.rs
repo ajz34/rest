@@ -83,6 +83,8 @@ pub struct InputKeywords {
     #[pyo3(get, set)]
     pub use_ri_symm: bool,
     #[pyo3(get, set)]
+    pub use_cuda_mp2: bool,
+    #[pyo3(get, set)]
     pub xc: String,
     pub post_xc: Vec<String>,
     pub post_correlation: Vec<DFAFamily>,
@@ -232,6 +234,7 @@ impl InputKeywords {
             post_ai_correction: String::from("none"),
             eri_type: String::from("ri_v"),
             use_ri_symm: true,
+            use_cuda_mp2: false,
             charge: 0.0_f64,
             spin: 1.0_f64,
             spin_channel: 1_usize,

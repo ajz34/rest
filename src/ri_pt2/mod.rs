@@ -2,6 +2,7 @@ use std::num;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
+use mp2_cuda::close_shell_pt2_cuda;
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator, IntoParallelRefIterator};
 use rayon::slice::ParallelSlice;
 use rest_tensors::{TensorOpt,RIFull, MatrixFull};
@@ -85,7 +86,10 @@ pub fn xdh_calculations(scf_data: &mut SCF) -> anyhow::Result<f64> {
         timerecords.count_start("c_r5dft");
         pt2_c = if scf_data.mol.spin_channel == 1 {
             match  dfa_family_pos {
-                crate::dft::DFAFamily::PT2 => close_shell_pt2_rayon(&scf_data).unwrap(),
+                crate::dft::DFAFamily::PT2 => match (scf_data.mol.ctrl.use_cuda_mp2) {
+                    true => close_shell_pt2_cuda(&scf_data).unwrap(),
+                    false => close_shell_pt2_rayon(&scf_data).unwrap(),
+                }
                 crate::dft::DFAFamily::SBGE2 => close_shell_sbge2_rayon(scf_data).unwrap(),
                 crate::dft::DFAFamily::SCSRPA => evaluate_osrpa_correlation_rayon(scf_data).unwrap(),
                 _ => [0.0,0.0,0.0]
