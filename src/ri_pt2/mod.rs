@@ -17,6 +17,7 @@ use crate::scf_io::SCF;
 use crate::utilities::{TimeRecords, self};
 
 pub mod sbge2;
+pub mod mp2_cuda;
 
 #[derive(Clone)]
 pub struct PT2 {

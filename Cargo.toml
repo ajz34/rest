@@ -47,6 +47,7 @@ rest_tensors = {path="../rest_tensors"}
 rest_libcint = {path="../rest_libcint"}
 #liblbfgs = {path="../rust-lbfgs"}
 liblbfgs = "0.1.0"
+candle-core = { version = "0.8", features = ["cuda"], optional = true }
 
 [build-dependencies]
 autocxx-build = "0.26.0"
@@ -83,3 +84,6 @@ path = "src/main.rs"
 name = "pyrest"
 path = "src/lib.rs"
 crate-type=["cdylib","lib"]
+
+[features]
+cuda = ["dep:candle-core"]
