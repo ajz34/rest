@@ -443,6 +443,10 @@ impl InputKeywords {
                     serde_json::Value::Bool(tmp_str) => {*tmp_str},
                     other => {true},
                 };
+                tmp_input.use_cuda_mp2 = match tmp_ctrl.get("use_cuda_mp2").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value:: Bool(tmp_bool) => *tmp_bool,
+                    other => false,
+                };
                 if tmp_input.print_level>0 {
                     if tmp_input.use_ri_symm {
                         println!("Turn on the basis pair symmetry for RI 3D-tensors")

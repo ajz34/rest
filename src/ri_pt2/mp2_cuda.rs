@@ -12,10 +12,16 @@ mod mp2_cuda {
     ) -> anyhow::Result<[f64; 3]> {
         use candle_core::{Device, DType, Tensor};
         use ndarray::prelude::*;
+        use std::time::{Instant, Duration};
     
         // set reduced precision
         let reduced_precision = candle_core::cuda::gemm_reduced_precision_f32();
         candle_core::cuda::set_gemm_reduced_precision_f32(true);
+
+        let time_tot = Instant::now();
+        let mut time_load = Duration::from_secs_f64(0.0);
+        let mut time_matmul = Duration::from_secs_f64(0.0);
+        let mut time_sum = Duration::from_secs_f64(0.0);
     
         let (nocc, nvir, naux) = cderi_ovu.dim();
         assert_eq!(nocc, occ_energy.len());
@@ -31,24 +37,37 @@ mod mp2_cuda {
         let mut e_bi2 = Tensor::zeros(&[], DType::F64, &device)?;
         
         for ptr_i in (0..nocc).step_by(batch_occ) {
+            let current = Instant::now();
             let nbatch_i = std::cmp::min(batch_occ, nocc - ptr_i);
             let cderi_ovu_batch_i = Tensor::from_slice(
                 cderi_ovu.slice(s![ptr_i..ptr_i+nbatch_i, .., ..]).as_slice().unwrap(),
                 (nbatch_i, nvir, naux), &device
             )?.to_dtype(DType::F32)?;
+            device.synchronize();
+            time_load += current.elapsed();
     
             for ptr_j in (0..ptr_i+nbatch_i).step_by(batch_occ) {
                 let nbatch_j = std::cmp::min(batch_occ, ptr_i + nbatch_i - ptr_j);
-                let cderi_ovu_batch_j = Tensor::from_slice(
-                    cderi_ovu.slice(s![ptr_j..ptr_j+nbatch_j, .., ..]).as_slice().unwrap(),
-                    (nbatch_j, nvir, naux), &device
-                )?.to_dtype(DType::F32)?;
+                let current = Instant::now();
+                let cderi_ovu_batch_j = if (ptr_j == ptr_i) { &cderi_ovu_batch_i } else {
+                    &Tensor::from_slice(
+                        cderi_ovu.slice(s![ptr_j..ptr_j+nbatch_j, .., ..]).as_slice().unwrap(),
+                        (nbatch_j, nvir, naux), &device
+                    )?.to_dtype(DType::F32)?
+                };
+                device.synchronize();
+                time_load += current.elapsed();
     
                 for i in ptr_i .. ptr_i+nbatch_i {
                     for j in ptr_j .. std::cmp::min(ptr_j + nbatch_j, i + 1) {
+                        let current = Instant::now();
                         let cderi_ivu = cderi_ovu_batch_i.i(i - ptr_i)?;
                         let cderi_jvu = cderi_ovu_batch_j.i(j - ptr_j)?;
                         let g_ab = cderi_ivu.matmul(&cderi_jvu.transpose(0, 1)?)?;
+                        device.synchronize();
+                        time_matmul += current.elapsed();
+
+                        let current = Instant::now();
                         let e_i = occ_energy[i] as f64;
                         let e_j = occ_energy[j] as f64;
                         let d_ab = ((&d_vv_device + e_i)? + e_j)?;
@@ -57,6 +76,8 @@ mod mp2_cuda {
     
                         e_bi1 = (e_bi1 + (factor * (&g_ab * &t_ab)?.sum_all()?)?.to_dtype(DType::F64)?)?;
                         e_bi2 = (e_bi2 + (factor * (&g_ab * &t_ab.transpose(0, 1)?)?.sum_all()?.to_dtype(DType::F64)?)?)?;
+                        device.synchronize();
+                        time_sum += current.elapsed();
                     }
                 }
             }
@@ -69,6 +90,11 @@ mod mp2_cuda {
     
         // restore reduced precision
         candle_core::cuda::set_gemm_reduced_precision_f32(reduced_precision);
+
+        println!("Total time: {:?}", time_tot.elapsed());
+        println!("Load time: {:?}", time_load);
+        println!("Matmul time: {:?}", time_matmul);
+        println!("Sum time: {:?}", time_sum);
     
         return Ok([e_os + e_ss, e_os, e_ss]);
     }
@@ -105,6 +131,8 @@ mod mp2_cuda {
 
 #[cfg(not(feature = "cuda"))]
 mod mp2_cuda {
+    use crate::scf_io::SCF;
+
     pub fn close_shell_pt2_cuda(scf_data: &SCF) -> anyhow::Result<[f64; 3]> {
         panic!("CUDA support is not enabled")
     }
@@ -179,7 +207,7 @@ mod debug_nh3 {
 }
 
 #[cfg(test)]
-mod debug_c12h26 {
+mod debug_c20h42 {
     use super::*;
     use std::time::Instant;
     use crate::ctrl_io::InputKeywords;
@@ -191,7 +219,7 @@ mod debug_c12h26 {
     #[test]
     fn test() {
         let start = Instant::now();
-        let mut scf_data = initialize_c12h26();
+        let mut scf_data = initialize_c20h42();
         println!("Elapsed time (SCF): {:?}", start.elapsed());
 
         let start = Instant::now();
@@ -210,17 +238,19 @@ mod debug_c12h26 {
         println!("Elapsed time (MP2 rayon): {:?}", start.elapsed());
 
         /*
-            Tested on Rayon 7945HX (16 threads) + RTX 4060
-
-            Elapsed time (RI3MO): 1.246392849s
-            [-2.254752243251664, -1.768394118171839, -0.4863581250798248]
-            Elapsed time (MP2 cuda): 834.194864ms
-            [-2.2547687994450776, -1.7684088667125075, -0.48635993273257017]
-            Elapsed time (MP2 rayon): 7.106851207s
+            Elapsed time (RI3MO): 5.834809235s
+            Total time: 4.428279844s
+            Load time: 283.471219ms
+            Matmul time: 1.314239139s
+            Sum time: 2.616146412s
+            [-3.7516710824339645, -2.9355218441569377, -0.8161492382770268]
+            Elapsed time (MP2 cuda): 4.43012143s
+            [-3.751694492142329, -2.935539784813922, -0.8161547073284072]
+            Elapsed time (MP2 rayon): 12.629729127s
          */
     }
 
-    fn initialize_c12h26() -> SCF {
+    fn initialize_c20h42() -> SCF {
         let input_token = r##"
 [ctrl]
      print_level =          2
@@ -248,47 +278,71 @@ mod debug_c12h26 {
      num_threads =          16
 
 [geom]
-    name = "C12H26"
+    name = "C20H42"
     unit = "Angstrom"
     position = """
-        C          0.99590        0.00874        0.02912
-        C          2.51497        0.01491        0.04092
-        C          3.05233        0.96529        1.10755
-        C          4.57887        0.97424        1.12090
-        C          5.10652        1.92605        2.19141
-        C          6.63201        1.93944        2.20819
-        C          7.15566        2.89075        3.28062
-        C          8.68124        2.90423        3.29701
-        C          9.20897        3.85356        4.36970
-        C         10.73527        3.86292        4.38316
-        C         11.27347        4.81020        5.45174
-        C         12.79282        4.81703        5.46246
-        H          0.62420       -0.67624       -0.73886
-        H          0.60223        1.00743       -0.18569
-        H          0.59837       -0.31563        0.99622
-        H          2.88337        0.31565       -0.94674
-        H          2.87961       -1.00160        0.22902
-        H          2.67826        0.66303        2.09347
-        H          2.68091        1.98005        0.91889
-        H          4.95608        1.27969        0.13728
-        H          4.95349       -0.03891        1.31112
-        H          4.72996        1.62033        3.17524
-        H          4.73142        2.93925        2.00202
-        H          7.00963        2.24697        1.22537
-        H          7.00844        0.92672        2.39728
-        H          6.77826        2.58280        4.26344
-        H          6.77905        3.90354        3.09209
-        H          9.05732        3.21220        2.31361
-        H          9.05648        1.89051        3.48373
-        H          8.83233        3.54509        5.35255
-        H          8.83406        4.86718        4.18229
-        H         11.10909        4.16750        3.39797
-        H         11.10701        2.84786        4.56911
-        H         10.90576        4.50686        6.43902
-        H         10.90834        5.82716        5.26681
-        H         13.18649        3.81699        5.67312
-        H         13.16432        5.49863        6.23161
-        H         13.18931        5.14445        4.49536
+        C          0.92001        0.06420        0.06012
+        C          2.43575        0.07223        0.05487
+        C          2.95953        0.07735       -1.37280
+        C          4.47850        0.08347       -1.38184
+        C          4.99051        0.09045       -2.81325
+        C          6.50633        0.09509       -2.82168
+        C          7.01829        0.10275       -4.24936
+        C          8.53627        0.10527       -4.25456
+        C          9.04692        0.11614       -5.68273
+        C         10.56346        0.11661       -5.69047
+        C         11.07492        0.12997       -7.11418
+        C         12.59092        0.13132       -7.12186
+        C         13.10157        0.14462       -8.55008
+        C         14.61964        0.14607       -8.55548
+        C         15.13124        0.16035       -9.98248
+        C         16.64733        0.16206       -9.99128
+        C         17.15935        0.17513      -11.42267
+        C         18.67833        0.17723      -11.43172
+        C         19.20209        0.19029      -12.85934
+        C         20.71785        0.19235      -12.86461
+        H          0.54201        0.06057        1.08613
+        H          0.53500       -0.82407       -0.45173
+        H          0.52556        0.94987       -0.44900
+        H          2.80958       -0.81016        0.58802
+        H          2.80026        0.95682        0.59082
+        H          2.58241        0.95886       -1.90489
+        H          2.58965       -0.80493       -1.90864
+        H          4.85987       -0.80023       -0.85536
+        H          4.85295        0.96646       -0.84930
+        H          4.61266        0.97436       -3.34144
+        H          4.61753       -0.79132       -3.34848
+        H          6.88668       -0.78995       -2.29450
+        H          6.88220        0.97538       -2.28518
+        H          6.64237        0.98886       -4.77569
+        H          6.64440       -0.77705       -4.78613
+        H          8.91291       -0.78065       -3.72931
+        H          8.91067        0.98489       -3.71692
+        H          8.67103        1.00375       -6.20773
+        H          8.67135       -0.76270       -6.22160
+        H         10.93921       -0.77082       -5.16486
+        H         10.93901        0.99501       -5.14890
+        H         10.69770        1.01663       -7.64012
+        H         10.69983       -0.74916       -7.65530
+        H         12.96781       -0.75568       -6.59750
+        H         12.96549        1.01075       -6.58231
+        H         12.72473        1.03172       -9.07390
+        H         12.72689       -0.73395       -9.08896
+        H         14.99584       -0.74031       -8.03132
+        H         14.99314        1.02558       -8.01607
+        H         14.75220        1.04672      -10.50702
+        H         14.75461       -0.71855      -10.52233
+        H         17.02394       -0.72486       -9.46726
+        H         17.02159        1.04075       -9.45197
+        H         16.78025        1.06253      -11.94450
+        H         16.78260       -0.70411      -11.95980
+        H         19.05301       -0.70877      -10.90541
+        H         19.05066        1.05497      -10.89014
+        H         18.83173        1.07790      -13.38621
+        H         18.83408       -0.68904      -13.40152
+        H         21.10641        1.07540      -12.34646
+        H         21.09584        0.20174      -13.89058
+        H         21.10877       -0.69850      -12.36183
     """
 "##;
         let keys = toml::from_str::<serde_json::Value>(&input_token[..]).unwrap();
