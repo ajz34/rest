@@ -48,6 +48,7 @@ rest_libcint = {path="../rest_libcint"}
 #liblbfgs = {path="../rust-lbfgs"}
 liblbfgs = "0.1.0"
 candle-core = { version = "0.8", features = ["cuda"], optional = true }
+tch = { version = "0.18" }
 
 [build-dependencies]
 autocxx-build = "0.26.0"

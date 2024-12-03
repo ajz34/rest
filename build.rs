@@ -10,7 +10,7 @@ fn main() -> miette::Result<()> {
 
     build_dftd3and4();
 
-    let library_names = ["restmatr","openblas","xc","hdf5","rest2fch","cgto"];
+    let library_names = ["restmatr","openblas","xc","hdf5","rest2fch"];
     library_names.iter().for_each(|name| {
         println!("cargo:rustc-link-lib={}",*name);
     });
@@ -20,6 +20,10 @@ fn main() -> miette::Result<()> {
     library_path.iter().for_each(|path| {
         println!("cargo:rustc-link-search={}",env::join_paths(&[path]).unwrap().to_str().unwrap())
     });
+
+    // tch-rs temporary solution
+    println!("cargo:rustc-link-arg=-Wl,--no-as-needed");
+    println!("cargo:rustc-link-arg=-ltorch");
 
     Ok(())
 

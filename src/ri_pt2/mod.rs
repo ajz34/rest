@@ -19,6 +19,7 @@ use crate::utilities::{TimeRecords, self};
 
 pub mod sbge2;
 pub mod mp2_cuda;
+pub mod mp2_tch;
 
 #[derive(Clone)]
 pub struct PT2 {
