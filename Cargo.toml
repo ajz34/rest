@@ -47,6 +47,7 @@ rest_tensors = {path="../rest_tensors"}
 rest_libcint = {path="../rest_libcint"}
 #liblbfgs = {path="../rust-lbfgs"}
 liblbfgs = "0.1.0"
+rest_dftd3 = { path = "../tmp-dftd3-rs" }
 
 [build-dependencies]
 autocxx-build = "0.26.0"

@@ -93,7 +93,7 @@ pub fn dftd3_atm(scf_data: &SCF) -> (f64, Option<Vec<f64>>, Option<Vec<f64>>) {
     let mut sigma = vec![0.0; 20];
 
     println!("Calculating DFTD3:");
-    unsafe{calc_dftd3_atm_rest_(
+    unsafe{rest_dftd3::rest_interface::calc_dftd3_atm_rest_(
         num.as_ptr(),
         &(num.len() as c_int),
         scf_data.mol.geom.position.data.as_ptr(),
