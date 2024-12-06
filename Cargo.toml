@@ -48,6 +48,7 @@ rest_libcint = {path="../rest_libcint"}
 #liblbfgs = {path="../rust-lbfgs"}
 liblbfgs = "0.1.0"
 rest_dftd3 = { path = "../tmp-dftd3-rs" }
+rest_dftd4 = { path = "../tmp-dftd4-rs" }
 
 [build-dependencies]
 autocxx-build = "0.26.0"

@@ -1,5 +1,5 @@
 extern crate dunce;
-use std::{env, process::Command};
+use std::env;
 //use std::path::PathBuf;
 
 fn main() -> miette::Result<()> {
@@ -8,9 +8,7 @@ fn main() -> miette::Result<()> {
         external_dir
     } else {"".to_string()};
 
-    build_dftd3and4();
-
-    let library_names = ["restmatr","openblas","xc","hdf5","rest2fch"];
+    let library_names = ["openblas","xc","rest2fch"];
     library_names.iter().for_each(|name| {
         println!("cargo:rustc-link-lib={}",*name);
     });
@@ -22,45 +20,4 @@ fn main() -> miette::Result<()> {
     });
 
     Ok(())
-
-}
-
-
-fn build_dftd3and4() {
-    let rest_dir = if let Ok(rest_dir) = env::var("REST_HOME") {
-        rest_dir
-    } else {"".to_string()};
-    let external_dir = if let Ok(external_dir) = env::var("REST_EXT_DIR") {
-        external_dir
-    } else {"".to_string()};
-    let external_inc = if let Ok(external_inc) = env::var("REST_EXT_INC") {
-        external_inc
-    } else {"".to_string()};
-
-    let fortran_compiler = if let Ok(fortran_compiler) = env::var("REST_FORTRAN_COMPILER") {
-        fortran_compiler
-    } else {"gfortran".to_string()};
-
-
-    // compile dftd4_rest
-    let dftd4_rest_file = format!("{}/rest/src/external_libs/dftd4_rest.f90", &rest_dir.to_string());
-    let dftd4_rest_libr = format!("{}/libdftd4_rest.so",&external_dir.to_string());
-    let dftd4_rest_link = format!("-L{}",&external_dir.to_string());
-    let dftd4_rest_include = format!("-I{}/{}",&external_inc.to_string(),"dftd4");
-
-    Command::new(&fortran_compiler).arg("-shared").arg("-fPIC").arg("-O2")
-        .arg(&dftd4_rest_file)
-        .arg("-o").arg(&dftd4_rest_libr)
-        .arg(&dftd4_rest_link).arg("-ldftd4")
-        .arg(&dftd4_rest_include).status().unwrap();
-
-    println!("cargo:rerun-if-changed={}", &dftd4_rest_libr);
-    println!("cargo:rerun-if-changed={}", &dftd4_rest_file);
-
-    let library_names = ["s-dftd3","dftd4","dftd3_rest","dftd4_rest"];
-    library_names.iter().for_each(|name| {
-        println!("cargo:rustc-link-lib={}",*name);
-    });
-
-
 }

@@ -1,7 +1,5 @@
 mod ffi_mokit;
-mod ffi_dftd;
 use crate::external_libs::ffi_mokit::*;
-use crate::external_libs::ffi_dftd::*;
 use crate::geom_io::get_charge;
 use std::ffi::{c_double, c_int, c_char, CStr, CString};
 use crate::scf_io::SCF;
@@ -120,7 +118,7 @@ pub fn dftd4_atm(scf_data: &SCF) -> (f64, Option<Vec<f64>>, Option<Vec<f64>>) {
 
 
     println!("Calculating DFTD4:");
-    unsafe{calc_dftd4_rest_(
+    unsafe{rest_dftd4::rest_interface::calc_dftd4_rest_(
         num.as_ptr(),
         &(num.len() as c_int),
         scf_data.mol.geom.position.data.as_ptr(),
@@ -134,4 +132,90 @@ pub fn dftd4_atm(scf_data: &SCF) -> (f64, Option<Vec<f64>>, Option<Vec<f64>>) {
     )
     }
     (energy, Some(gradient), Some(sigma))
+}
+
+#[cfg(test)]
+mod debug_nh3 {
+    use super::*;
+    use crate::Molecule;
+
+    #[test]
+    fn test() {
+        let mut scf_data = initialize_nh3();
+        let (energy, gradient, sigma) = dftd(&scf_data);
+        assert!((energy - ref_eng_dftd3()) < 1e-6);
+        let (energy, gradient, sigma) = dftd4_atm(&scf_data);
+        assert!((energy - ref_eng_dftd4()) < 1e-6);
+    }
+
+    fn ref_eng_dftd3() -> f64 {
+        return -0.0015653979299166236;
+        /*
+            from pyscf import gto
+            import dftd3.pyscf
+            mol = gto.M(
+                atom="""
+                    N  0.0  0.0  0.0
+                    H  0.0  1.5  1.0
+                    H  1.4  1.1  0.0
+                    H  1.2  0.0  1.3
+                """
+            )
+            d3 = dftd3.pyscf.DFTD3Dispersion(mol, xc="pbe", version="d3bj")
+            float(d3.kernel()[0])
+        */
+    }
+
+    fn ref_eng_dftd4() -> f64 {
+        return -0.000896877571185443;
+        /*
+            from pyscf import gto
+            import dftd4.pyscf
+            mol = gto.M(
+                atom="""
+                    N  0.0  0.0  0.0
+                    H  0.0  1.5  1.0
+                    H  1.4  1.1  0.0
+                    H  1.2  0.0  1.3
+                """
+            )
+            d4 = dftd4.pyscf.DFTD4Dispersion(mol, xc="pbe")
+            float(d4.kernel()[0])
+        */
+    }
+
+    fn initialize_nh3() -> SCF {
+        use crate::scf_io;
+        use crate::Molecule;
+        use crate::ctrl_io::InputKeywords;
+        use crate::scf_io::{scf_without_build, SCF};
+        let input_token = r##"
+[ctrl]
+     print_level =          2
+     xc =                   "pbe"
+     basis_path =           "basis-set-pool/def2-TZVP"
+     auxbas_path =          "basis-set-pool/def2-SVP-JKFIT"
+     eri_type =             "ri-v"
+     charge =               0.0
+     spin =                 1.0
+     spin_polarization =    false
+     empirical_dispersion = "d3bj"
+
+[geom]
+    name = "NH3"
+    unit = "Angstrom"
+    position = """
+        N  0.0  0.0  0.0
+        H  0.0  1.5  1.0
+        H  1.4  1.1  0.0
+        H  1.2  0.0  1.3
+    """
+"##;
+        let keys = toml::from_str::<serde_json::Value>(&input_token[..]).unwrap();
+        let (mut ctrl, mut geom) = InputKeywords::parse_ctl_from_json(&keys).unwrap();
+        let mol = Molecule::build_native(ctrl, geom).unwrap();
+        let mut scf_data = scf_io::SCF::build(mol);
+        scf_without_build(&mut scf_data);
+        return scf_data;
+    }
 }
