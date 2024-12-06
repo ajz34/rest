@@ -58,7 +58,6 @@ use std::path::PathBuf;
 use basis_io::ecp::ghost_effective_potential_matrix;
 use num_traits::Pow;
 use pyo3::prelude::*;
-use autocxx::prelude::*;
 use ctrl_io::JobType;
 use constants::ANG;
 use scf_io::{SCF,scf_without_build};
