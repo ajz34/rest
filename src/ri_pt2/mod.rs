@@ -2,7 +2,6 @@ use std::num;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
-use mp2_cuda::close_shell_pt2_cuda;
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator, IntoParallelRefIterator};
 use rayon::slice::ParallelSlice;
 use rest_tensors::{TensorOpt,RIFull, MatrixFull};
@@ -16,9 +15,12 @@ use crate::scf_io::{determine_ri3mo_size_for_pt2_and_rpa, scf};
 use crate::molecule_io::Molecule;
 use crate::scf_io::SCF;
 use crate::utilities::{TimeRecords, self};
+use crate::ri_pt2::rmp2_cuda::close_shell_pt2_cuda;
+use crate::ri_pt2::ump2_cuda::open_shell_pt2_cuda;
 
 pub mod sbge2;
-pub mod mp2_cuda;
+pub mod rmp2_cuda;
+pub mod ump2_cuda;
 
 #[derive(Clone)]
 pub struct PT2 {
@@ -96,7 +98,10 @@ pub fn xdh_calculations(scf_data: &mut SCF) -> anyhow::Result<f64> {
             }
         } else {
             match  dfa_family_pos {
-                crate::dft::DFAFamily::PT2 => open_shell_pt2_rayon(&scf_data).unwrap(),
+                crate::dft::DFAFamily::PT2 => match (scf_data.mol.ctrl.use_cuda_mp2) {
+                    true => open_shell_pt2_cuda(&scf_data).unwrap(),
+                    false => open_shell_pt2_rayon(&scf_data).unwrap(),
+                },
                 crate::dft::DFAFamily::SBGE2 => open_shell_sbge2_rayon(scf_data).unwrap(),
                 crate::dft::DFAFamily::SCSRPA => {
                     let c_rpa = evaluate_osrpa_correlation_rayon(scf_data).unwrap();

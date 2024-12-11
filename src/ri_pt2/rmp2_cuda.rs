@@ -1,7 +1,6 @@
 #[cfg(feature = "cuda")]
-mod mp2_cuda {
+mod rmp2_cuda {
     use crate::scf_io::SCF;
-    use candle_core::IndexOp;
 
     /// Compute RMP2 energy using CUDA with reduced precision.
     ///
@@ -22,7 +21,7 @@ mod mp2_cuda {
         vir_occupation: Option<ndarray::ArrayView1<f64>>,
         batch_occ: Option<usize>,
     ) -> anyhow::Result<[f64; 3]> {
-        use candle_core::{DType, Device, Tensor};
+        use candle_core::{DType, Device, IndexOp, Tensor};
         use ndarray::prelude::*;
 
         // set reduced precision
@@ -38,16 +37,18 @@ mod mp2_cuda {
         let device = Device::new_cuda(0)?;
 
         // virtual orbital energy denominator
-        let d_vv = -&vir_energy.view().insert_axis(Axis(0)) - &vir_energy.view().insert_axis(Axis(1));
-        let d_vv = d_vv.as_standard_layout().to_owned();
-        let d_vv_device = Tensor::from_slice(d_vv.as_slice().unwrap(), (nvir, nvir), &device)?.to_dtype(DType::F32)?;
+        let d_vv = {
+            let d_vv = -&vir_energy.view().insert_axis(Axis(1)) - &vir_energy.view().insert_axis(Axis(0));
+            let d_vv = d_vv.as_standard_layout().to_owned();
+            Tensor::from_slice(d_vv.as_slice().unwrap(), (nvir, nvir), &device)?.to_dtype(DType::F32)?
+        };
 
         // virtual occupation multiplier
         let is_frac_occ = occ_occupation.is_some() && vir_occupation.is_some();
-        let n_vv_device = match is_frac_occ {
+        let n_vv = match is_frac_occ {
             true => {
                 let tmp = -&vir_occupation.unwrap() + 1.0;
-                let n_vv = &tmp.view().insert_axis(Axis(0)) * &tmp.view().insert_axis(Axis(1));
+                let n_vv = &tmp.view().insert_axis(Axis(1)) * &tmp.view().insert_axis(Axis(0));
                 let n_vv = n_vv.as_standard_layout().to_owned();
                 Some(Tensor::from_slice(n_vv.as_slice().unwrap(), (nvir, nvir), &device)?.to_dtype(DType::F32)?)
             },
@@ -63,6 +64,7 @@ mod mp2_cuda {
             let nbatch_i = std::cmp::min(batch_occ, nocc - ptr_i);
             let cderi_ovu_batch_i = {
                 let tsr = cderi_ovu.slice(s![ptr_i..ptr_i + nbatch_i, .., ..]);
+                let tsr = tsr.as_standard_layout(); // assure c-contiguous order
                 let tsr = tsr.as_slice().unwrap();
                 Tensor::from_slice(tsr, (nbatch_i, nvir, naux), &device)?.to_dtype(DType::F32)?
             };
@@ -73,6 +75,7 @@ mod mp2_cuda {
                     &cderi_ovu_batch_i
                 } else {
                     let tsr = cderi_ovu.slice(s![ptr_j..ptr_j + nbatch_j, .., ..]);
+                    let tsr = tsr.as_standard_layout(); // assure c-contiguous order
                     let tsr = tsr.as_slice().unwrap();
                     &Tensor::from_slice(tsr, (nbatch_j, nvir, naux), &device)?.to_dtype(DType::F32)?
                 };
@@ -88,13 +91,13 @@ mod mp2_cuda {
                         // denominator and multiplier part of MP2 energy
                         let e_i = occ_energy[i] as f64;
                         let e_j = occ_energy[j] as f64;
-                        let d_ab = (e_i + e_j + &d_vv_device)?;
+                        let d_ab = (e_i + e_j + &d_vv)?;
 
                         let d_ab = match is_frac_occ {
                             true => {
                                 let n_i = occ_occupation.as_ref().unwrap()[i];
                                 let n_j = occ_occupation.as_ref().unwrap()[j];
-                                let n_ab = (n_i * n_j * n_vv_device.as_ref().unwrap())?;
+                                let n_ab = (n_i * n_j * n_vv.as_ref().unwrap())?;
                                 (&d_ab / &n_ab)?
                             },
                             false => d_ab,
@@ -125,44 +128,41 @@ mod mp2_cuda {
 
     pub fn close_shell_pt2_cuda(scf_data: &SCF) -> anyhow::Result<[f64; 3]> {
         // TODO:
-        // 1. fraction occupation MP2
-        // 2. GPU before ri3mo
-        // 3. various workflow control options
-        // 4. `batch_occ` fine grain control
+        // - GPU before ri3mo
+        // - `batch_occ` fine grain control
 
-        use ndarray::s;
+        use ndarray::prelude::*;
 
         // get required data for MP2 calculation
-        if let Some(ri3mo_vec) = &scf_data.ri3mo {
-            let (rimo, vir_range, occ_range) = &ri3mo_vec[0];
-
-            let eigenvector = scf_data.eigenvectors.get(0).unwrap();
-            let eigenvalues = scf_data.eigenvalues.get(0).unwrap();
-
-            // essential inputs
-            let occ_energy = ndarray::ArrayView1::from(&eigenvalues[occ_range.clone()]);
-            let vir_energy = ndarray::ArrayView1::from(&eigenvalues[vir_range.clone()]);
-            let mut cderi_ovu_shape = rimo.size.clone();
-            cderi_ovu_shape.reverse(); // fortran-to-c order
-            let cderi_ovu = ndarray::ArrayView3::from_shape(cderi_ovu_shape, &rimo.data)?;
-
-            // fractional occupation number handling
-            let occupation = &scf_data.occupation[0];
-            let occ_occupation = &ndarray::ArrayView1::from(&occupation[occ_range.clone()]) / 2.0;
-            let vir_occupation = &ndarray::ArrayView1::from(&occupation[vir_range.clone()]) / 2.0;
-            let occ_occupation_view = Some(occ_occupation.view());
-            let vir_occupation_view = Some(vir_occupation.view());
-
-            let result = kernel_close_shell_mp2_gpu_tf32(cderi_ovu, occ_energy, vir_energy, occ_occupation_view, vir_occupation_view, Some(32))?;
-            return Ok(result);
-        } else {
+        if scf_data.ri3mo.is_none() {
             panic!("RI3MO should be initialized before the PT2 calculations")
         }
+
+        let ri3mo_vec = scf_data.ri3mo.as_ref().unwrap();
+        let (rimo, vir_range, occ_range) = &ri3mo_vec[0];
+        let eigenvalues = &scf_data.eigenvalues[0];
+
+        // essential inputs
+        let occ_energy = ArrayView1::from(&eigenvalues[occ_range.clone()]);
+        let vir_energy = ArrayView1::from(&eigenvalues[vir_range.clone()]);
+        let mut cderi_ovu_shape = rimo.size.clone();
+        cderi_ovu_shape.reverse(); // fortran-to-c order
+        let cderi_ovu = ArrayView3::from_shape(cderi_ovu_shape, &rimo.data)?;
+
+        // fractional occupation number handling
+        let occupation = &scf_data.occupation[0];
+        let occ_occupation = &ArrayView1::from(&occupation[occ_range.clone()]) / 2.0;
+        let vir_occupation = &ArrayView1::from(&occupation[vir_range.clone()]) / 2.0;
+        let occ_occupation_view = Some(occ_occupation.view());
+        let vir_occupation_view = Some(vir_occupation.view());
+
+        let result = kernel_close_shell_mp2_gpu_tf32(cderi_ovu, occ_energy, vir_energy, occ_occupation_view, vir_occupation_view, Some(32))?;
+        return Ok(result);
     }
 }
 
 #[cfg(not(feature = "cuda"))]
-mod mp2_cuda {
+mod rmp2_cuda {
     use crate::scf_io::SCF;
 
     pub fn close_shell_pt2_cuda(scf_data: &SCF) -> anyhow::Result<[f64; 3]> {
@@ -170,7 +170,7 @@ mod mp2_cuda {
     }
 }
 
-pub use mp2_cuda::*;
+pub use rmp2_cuda::*;
 
 #[cfg(test)]
 mod debug_nh3 {
