@@ -220,6 +220,7 @@ mod ump2_cuda {
 pub use ump2_cuda::*;
 
 #[cfg(test)]
+#[cfg(feature = "cuda")]
 mod debug_h2o {
     use super::*;
     use crate::ctrl_io::InputKeywords;
@@ -293,6 +294,140 @@ mod debug_h2o {
                     O  0.0  0.0  0.0
                     H  0.0  0.0  1.0
                     H  0.0  1.0  0.0
+                """
+            "##;
+        let keys = toml::from_str::<serde_json::Value>(&input_token[..]).unwrap();
+        let (mut ctrl, mut geom) = InputKeywords::parse_ctl_from_json(&keys).unwrap();
+        let mol = Molecule::build_native(ctrl, geom).unwrap();
+        let mut scf_data = scf_io::SCF::build(mol);
+        scf_without_build(&mut scf_data);
+        return scf_data;
+    }
+}
+
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod debug_c20h42 {
+    use super::*;
+    use crate::ctrl_io::InputKeywords;
+    use crate::molecule_io::Molecule;
+    use crate::ri_pt2::open_shell_pt2_rayon;
+    use crate::scf_io::{self, determine_ri3mo_size_for_pt2_and_rpa};
+    use crate::scf_io::{scf_without_build, SCF};
+    use std::time::Instant;
+
+    #[test]
+    #[ignore = "Stress test"]
+    fn test() {
+        let start = Instant::now();
+        let mut scf_data = initialize_c20h42();
+        println!("Elapsed time (SCF): {:?}", start.elapsed());
+
+        let start = Instant::now();
+        let (occ_range, vir_range) = determine_ri3mo_size_for_pt2_and_rpa(&scf_data);
+        scf_data.generate_ri3mo_rayon(vir_range, occ_range);
+        println!("Elapsed time (RI3MO): {:?}", start.elapsed());
+
+        let start = Instant::now();
+        let result = open_shell_pt2_cuda(&scf_data).unwrap();
+        println!("{:?}", result);
+        println!("Elapsed time (MP2 cuda): {:?}", start.elapsed());
+
+        let start = Instant::now();
+        let result = open_shell_pt2_rayon(&scf_data).unwrap();
+        println!("{:?}", result);
+        println!("Elapsed time (MP2 rayon): {:?}", start.elapsed());
+
+        // timing results
+        // Elapsed time (RI3MO): 11.631976912s
+        // Elapsed time (MP2 cuda): 12.343186152s
+        // Elapsed time (MP2 rayon): 46.759687954s
+    }
+
+    fn initialize_c20h42() -> SCF {
+        let input_token = r##"
+            [ctrl]
+                print_level =          2
+                xc =                   "mp2"
+                basis_path =           "basis-set-pool/def2-TZVP"
+                auxbas_path =          "basis-set-pool/def2-SVP-JKFIT"
+                eri_type =             "ri-v"
+                charge =               2.0
+                spin =                 3.0
+                spin_polarization =    true
+                initial_guess =        "sad"
+                scf_acc_rho =          1.0e-3
+                scf_acc_eev =          1.0e-4
+                scf_acc_etot =         1.0e-5
+                num_threads =          16
+
+            [geom]
+                name = "C20H42"
+                unit = "Angstrom"
+                position = """
+                    C          0.92001        0.06420        0.06012
+                    C          2.43575        0.07223        0.05487
+                    C          2.95953        0.07735       -1.37280
+                    C          4.47850        0.08347       -1.38184
+                    C          4.99051        0.09045       -2.81325
+                    C          6.50633        0.09509       -2.82168
+                    C          7.01829        0.10275       -4.24936
+                    C          8.53627        0.10527       -4.25456
+                    C          9.04692        0.11614       -5.68273
+                    C         10.56346        0.11661       -5.69047
+                    C         11.07492        0.12997       -7.11418
+                    C         12.59092        0.13132       -7.12186
+                    C         13.10157        0.14462       -8.55008
+                    C         14.61964        0.14607       -8.55548
+                    C         15.13124        0.16035       -9.98248
+                    C         16.64733        0.16206       -9.99128
+                    C         17.15935        0.17513      -11.42267
+                    C         18.67833        0.17723      -11.43172
+                    C         19.20209        0.19029      -12.85934
+                    C         20.71785        0.19235      -12.86461
+                    H          0.54201        0.06057        1.08613
+                    H          0.53500       -0.82407       -0.45173
+                    H          0.52556        0.94987       -0.44900
+                    H          2.80958       -0.81016        0.58802
+                    H          2.80026        0.95682        0.59082
+                    H          2.58241        0.95886       -1.90489
+                    H          2.58965       -0.80493       -1.90864
+                    H          4.85987       -0.80023       -0.85536
+                    H          4.85295        0.96646       -0.84930
+                    H          4.61266        0.97436       -3.34144
+                    H          4.61753       -0.79132       -3.34848
+                    H          6.88668       -0.78995       -2.29450
+                    H          6.88220        0.97538       -2.28518
+                    H          6.64237        0.98886       -4.77569
+                    H          6.64440       -0.77705       -4.78613
+                    H          8.91291       -0.78065       -3.72931
+                    H          8.91067        0.98489       -3.71692
+                    H          8.67103        1.00375       -6.20773
+                    H          8.67135       -0.76270       -6.22160
+                    H         10.93921       -0.77082       -5.16486
+                    H         10.93901        0.99501       -5.14890
+                    H         10.69770        1.01663       -7.64012
+                    H         10.69983       -0.74916       -7.65530
+                    H         12.96781       -0.75568       -6.59750
+                    H         12.96549        1.01075       -6.58231
+                    H         12.72473        1.03172       -9.07390
+                    H         12.72689       -0.73395       -9.08896
+                    H         14.99584       -0.74031       -8.03132
+                    H         14.99314        1.02558       -8.01607
+                    H         14.75220        1.04672      -10.50702
+                    H         14.75461       -0.71855      -10.52233
+                    H         17.02394       -0.72486       -9.46726
+                    H         17.02159        1.04075       -9.45197
+                    H         16.78025        1.06253      -11.94450
+                    H         16.78260       -0.70411      -11.95980
+                    H         19.05301       -0.70877      -10.90541
+                    H         19.05066        1.05497      -10.89014
+                    H         18.83173        1.07790      -13.38621
+                    H         18.83408       -0.68904      -13.40152
+                    H         21.10641        1.07540      -12.34646
+                    H         21.09584        0.20174      -13.89058
+                    H         21.10877       -0.69850      -12.36183
                 """
             "##;
         let keys = toml::from_str::<serde_json::Value>(&input_token[..]).unwrap();

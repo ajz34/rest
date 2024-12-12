@@ -173,6 +173,7 @@ mod rmp2_cuda {
 pub use rmp2_cuda::*;
 
 #[cfg(test)]
+#[cfg(feature = "cuda")]
 mod debug_nh3 {
     use super::*;
     use crate::ctrl_io::InputKeywords;
@@ -258,6 +259,7 @@ mod debug_nh3 {
 }
 
 #[cfg(test)]
+#[cfg(feature = "cuda")]
 mod debug_c20h42 {
     use super::*;
     use crate::ctrl_io::InputKeywords;
@@ -288,6 +290,11 @@ mod debug_c20h42 {
         let result = close_shell_pt2_rayon(&scf_data).unwrap();
         println!("{:?}", result);
         println!("Elapsed time (MP2 rayon): {:?}", start.elapsed());
+
+        // timing results
+        // Elapsed time (RI3MO): 5.815747779s
+        // Elapsed time (MP2 cuda): 4.547107079s
+        // Elapsed time (MP2 rayon): 12.716702551s
     }
 
     fn initialize_c20h42() -> SCF {
@@ -297,24 +304,11 @@ mod debug_c20h42 {
                 xc =                   "mp2"
                 basis_path =           "basis-set-pool/def2-TZVP"
                 auxbas_path =          "basis-set-pool/def2-SVP-JKFIT"
-                basis_type =           "spheric"
                 eri_type =             "ri-v"
-                auxbas_type =          "spheric"
-                guessfile =            "none"
-                chkfile =              "none"
                 charge =               0.0
                 spin =                 1.0
                 spin_polarization =    false
-                external_grids =       "none"
-                initial_guess=         "sad"
-                mixer =                "diis"
-                num_max_diis =         8
-                start_diis_cycle =     3
-                mix_param =            0.8
-                max_scf_cycle =        100
-                scf_acc_rho =          1.0e-6
-                scf_acc_eev =          1.0e-9
-                scf_acc_etot =         1.0e-11
+                initial_guess =        "sad"
                 num_threads =          16
 
             [geom]
