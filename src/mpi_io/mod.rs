@@ -1,3 +1,4 @@
+use std::iter::zip;
 use std::ops::{Range, Add, Sub, Mul, Div, AddAssign, SubAssign, MulAssign, DivAssign};
 use mpi::collective::SystemOperation;
 use mpi::environment::Universe;
@@ -355,6 +356,8 @@ where
 
     //println!("debug mpi 0 in rank {} with scale_vec = {:?}, distribution = {:?}", rank, &scale_vec, &distribution[rank]);
 
+    //let mut rreq_vec = vec![];
+    //let mut sreq_vec = vec![];
     for i in 0..size {
         for j in 0..size {
             if rank == j || rank == i {
@@ -381,7 +384,6 @@ where
                         }
                     });
                 });
-
             }
 
             //mpi::request::scope(|scope| {
@@ -406,6 +408,17 @@ where
             //});
         }
     }
+
+    //for rreq_i in rreq_vec {
+    //    rreq_i.wait();
+    //}
+
+    //for sreq_i in sreq_vec {
+    //    if let Some(sreq_i) = sreq_i {
+    //        sreq_i.wait();
+    //    }
+    //}
+
     result
 }
 
@@ -449,7 +462,7 @@ pub fn average_distribution_with_residue(num_tasks: usize, size: usize) -> (Vec<
 }
 
 pub fn communicate_by_batch(num_tasks: usize) -> Vec<Range<usize>> {
-    let mut chunk_size = MPI_CHUNK; // around 100 Mb
+    let mut chunk_size = MPI_CHUNK; // around 1 Gb
     //let mut chunk_size = 16_usize; 
     
     let chunk_rest = num_tasks%chunk_size;
@@ -470,4 +483,77 @@ pub fn communicate_by_batch(num_tasks: usize) -> Vec<Range<usize>> {
     });
 
     distribute_vec
+}
+
+pub fn mpi_isend_irecv_wrt_distribution_v02<Q>(
+    world: &SimpleCommunicator,
+    data: &[Q],
+    distribution: &[Range<usize>], 
+    scale: usize) -> Vec<Vec<Q>>
+where
+    Q: Zero + Send + Sync + Buffer + Debug + Clone + BufferMut + 'static,
+    [Q]: Buffer + BufferMut,
+    Vec<Q>: BufferMut,
+{
+    let rank = world.rank() as usize;
+    let size = world.size() as usize;
+
+    let mut scale_vec = vec![scale; size];
+    world.all_gather_into(&scale, &mut scale_vec[..]);
+
+    let mut result: Vec<Vec<Q>> = vec![vec![]; distribution.len()];
+    //let chunk_len = distribution[rank].len()*scale;
+    result.iter_mut().enumerate().for_each(|(i,x)| *x = vec![Q::zero(); distribution[rank].len()*scale_vec[i]]);
+
+
+    //println!("debug mpi 0 in rank {} with scale_vec = {:?}, distribution = {:?}", rank, &scale_vec, &distribution[rank]);
+
+    //let mut rreq_vec = vec![];
+    //let mut sreq_vec = vec![];
+    for i in 0..size {
+        for j in 0..size {
+            if rank == j || rank == i {
+                let tmp_range = distribution[i].start*scale_vec[j] .. distribution[i].end*scale_vec[j];
+                let by_batch = communicate_by_batch(tmp_range.len());
+                let count = by_batch.len();
+                let mut result_j  = Vec::new();
+                let mut result_j_left = result[j].as_mut_slice();
+                let mut local_start = 0;
+                if rank == i {
+                    for (k, range_k) in by_batch.iter().enumerate() {
+                        let (result_j_chunk, result_j_left_2) = result_j_left.split_at_mut(range_k.end-local_start);
+                        result_j.push(result_j_chunk);
+                        local_start = range_k.end;
+                        result_j_left = result_j_left_2;
+                    };
+                }
+                //println!("debug ij: {} {}, by_batch_len: {}", i, j, &by_batch.len());
+                mpi::request::multiple_scope(count*2, |scope, coll| {
+
+                    if rank == j {
+                        for ((k, loc_batch)) in by_batch.iter().enumerate() {
+                            let tmp_range_batch = (tmp_range.start + loc_batch.start)..(tmp_range.start + loc_batch.start + loc_batch.len());
+                            let sreq = world
+                                .process_at_rank(i as i32)
+                                .immediate_send(scope, &data[tmp_range_batch]);
+                            coll.add(sreq);
+                        }
+                    }
+                    if rank == i {
+                        for ((k, loc_batch), result_jk) in zip(by_batch.iter().enumerate(), result_j) {
+                            let rreq = world
+                                .process_at_rank(j as i32)
+                                .immediate_receive_into(scope, result_jk);
+                            coll.add(rreq);
+                        }
+                    };
+                    while coll.incomplete() > 0 {
+                        coll.test_any();
+                    }
+                });
+            }
+        }
+    }
+
+    result
 }

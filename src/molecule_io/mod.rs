@@ -27,7 +27,7 @@ use crate::dft::DFA4REST;
 use crate::geom_io::{GeomCell,MOrC, GeomUnit, get_mass_charge};
 use crate::basis_io::{ecp, BasInfo, Basis4Elem};
 use crate::ctrl_io::{overall_report_on_ctrl_geom, InputKeywords};
-use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, MPIData, MPIOperator};
+use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, MPIData, MPIOperator, mpi_isend_irecv_wrt_distribution_v02};
 use crate::utilities;
 use crate::basis_io::bse_downloader::{self, ctrl_element_checker, local_element_checker};
 use crate::basis_io::basis_list::{self, basis_fuzzy_matcher, check_basis_name};
@@ -2845,7 +2845,7 @@ impl Molecule {
                 ////};
 
                 //println!("debug mpi 0 of rank {}", my_rank);
-                let loc_ri3fn = mpi_isend_irecv_wrt_distribution(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
+                let loc_ri3fn = mpi_isend_irecv_wrt_distribution_v02(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
                 //let loc_start = mpi_isend_irecv_wrt_distribution(&mpi_op.world, &baspar, baspar_distribution, 1);
                 //println!("debug mpi 1 of rank {}", my_rank);
                 //if my_rank == 3 {println!("debug rank {}, loc_ri3fn: {:?}", my_rank, &loc_ri3fn)};
