@@ -1776,6 +1776,7 @@ impl Molecule {
     }
 
     pub fn int_ij_aux_columb_new(&self) -> MatrixFull<f64> {
+        utilities::omp_set_num_threads_wrapper(self.ctrl.num_threads.unwrap());
         let n_auxbas = self.num_auxbas;
         let mut cint_data = self.initialize_cint(true);
         let n_basis_shell = self.cint_bas.len() as i32;
@@ -2826,7 +2827,9 @@ impl Molecule {
 
             let my_rank = mpi_op.rank;
 
+            if my_rank == 0 {println!("debug: enter the generation of inv_aux_matr")};
             let aux_v = self.prepare_inv_aux_matr();
+            if my_rank == 0 {println!("debug: leave the generation of inv_aux_matr")};
             let (basbas2baspar, baspar2basbas) = self.prepare_baspair_map();
             if let (Some(auxbas_distribution), Some(baspar_distribution)) = 
                 (&loc_mpi_data.auxbas, &loc_mpi_data.baspar) {
@@ -2845,7 +2848,9 @@ impl Molecule {
                 ////};
 
                 //println!("debug mpi 0 of rank {}", my_rank);
+                if my_rank == 0 {println!("debug: enter the mpi communication of ri_v matrix")};
                 let loc_ri3fn = mpi_isend_irecv_wrt_distribution_v02(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
+                if my_rank == 0 {println!("debug: leave the mpi communication of ri_v matrix")};
                 //let loc_start = mpi_isend_irecv_wrt_distribution(&mpi_op.world, &baspar, baspar_distribution, 1);
                 //println!("debug mpi 1 of rank {}", my_rank);
                 //if my_rank == 3 {println!("debug rank {}, loc_ri3fn: {:?}", my_rank, &loc_ri3fn)};
