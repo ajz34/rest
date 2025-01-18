@@ -10,7 +10,7 @@ use libc::regerror;
 use statrs::distribution::Continuous;
 use tensors::{map_upper_to_full, BasicMatrix, SubMatrixUpper};
 use tensors::external_libs::{ri_copy_from_ri, matr_copy_from_ri};
-use tensors::matrix_blas_lapack::{_dgemm, _dgemm_full, _power, _power_rayon, _newton_schulz_inverse_square_root_v02};
+use tensors::matrix_blas_lapack::{_dgemm, _dgemm_full, _power, _power_rayon_for_symmetric_matrix, _newton_schulz_inverse_square_root_v02};
 use std::collections::HashMap;
 use std::fmt::format;
 use std::fs;
@@ -2268,7 +2268,7 @@ impl Molecule {
         let mut aux_v = self.int_ij_aux_columb();
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.lapack_power(-0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap();
         time_records.count("inv_sqrt");
@@ -2471,7 +2471,7 @@ impl Molecule {
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
         //aux_v = aux_v.lapack_power(-0.5, AUXBAS_THRESHOLD).unwrap();
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap();
         time_records.count("inv_sqrt");
 
@@ -2634,7 +2634,7 @@ impl Molecule {
         let mut aux_v = self.int_ij_aux_columb();
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap_or(
         //    _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap()
         //);
@@ -2794,7 +2794,7 @@ impl Molecule {
 
     pub fn prepare_inv_aux_matr(&self) -> MatrixFull<f64> {
         let mut aux_v = self.int_ij_aux_columb();
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         aux_v
     }
 
@@ -3041,7 +3041,7 @@ impl Molecule {
         let mut aux_v = self.int_ij_aux_columb();
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap_or(
         //    _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap()
         //);
