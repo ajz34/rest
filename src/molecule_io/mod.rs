@@ -27,7 +27,7 @@ use crate::dft::DFA4REST;
 use crate::geom_io::{GeomCell,MOrC, GeomUnit, get_mass_charge};
 use crate::basis_io::{ecp, BasInfo, Basis4Elem};
 use crate::ctrl_io::{overall_report_on_ctrl_geom, InputKeywords};
-use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, MPIData, MPIOperator, mpi_isend_irecv_wrt_distribution_v02};
+use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, mpi_isend_irecv_wrt_distribution_v02, mpi_isend_irecv_wrt_distribution_v03, MPIData, MPIOperator};
 use crate::utilities;
 use crate::basis_io::bse_downloader::{self, ctrl_element_checker, local_element_checker};
 use crate::basis_io::basis_list::{self, basis_fuzzy_matcher, check_basis_name};
@@ -2842,34 +2842,23 @@ impl Molecule {
                 } else {
                     MatrixFull::empty()
                 };
-                ////if my_rank == 3 {
-                //    println!("debug rank {}, sbsh: {}, ebsh: {}", my_rank, sbsh, ebsh);
-                //    println!("debug rank {}, loc_ri3fn: {:?}", my_rank, &loc_ri3fn.size());
-                ////};
 
-                //println!("debug mpi 0 of rank {}", my_rank);
-                if my_rank == 0 {println!("debug: enter the mpi communication of ri_v matrix")};
-                let loc_ri3fn = mpi_isend_irecv_wrt_distribution_v02(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
-                if my_rank == 0 {println!("debug: leave the mpi communication of ri_v matrix")};
-                //let loc_start = mpi_isend_irecv_wrt_distribution(&mpi_op.world, &baspar, baspar_distribution, 1);
-                //println!("debug mpi 1 of rank {}", my_rank);
-                //if my_rank == 3 {println!("debug rank {}, loc_ri3fn: {:?}", my_rank, &loc_ri3fn)};
+                ////println!("debug mpi 0 of rank {}", my_rank);
+                //if my_rank == 0 {println!("debug: enter the mpi communication of ri_v matrix")};
+                //let loc_ri3fn = mpi_isend_irecv_wrt_distribution_v02(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
+                //if my_rank == 0 {println!("debug: leave the mpi communication of ri_v matrix")};
                 
-                loc_ri3fn.iter().enumerate().for_each(|(rank_i, v)| {
-                    let (baspar, sbsh, ebsh) = &baspar_distribution[rank_i];
-                    ri3fn.iter_submatrix_mut(baspar.clone(), 0..auxbas_distribution[my_rank].len())
-                    .zip(v.iter()).for_each(|(to, from)| {*to = *from});
-                });
-
-
-                //// ======= DEBUG IGOR ======
-                //let (test_ri3fn, _, _) = self.prepare_rimatr_for_ri_v_rayon();
-                //let mse = test_ri3fn.iter_submatrix(0..n_baspar, auxbas_distribution[my_rank].clone())
-                //   .zip(ri3fn.data_ref().unwrap().iter()).fold(0.0, |acc, (test_v, v)| {
-                //    acc + (test_v-v).abs()
+                //loc_ri3fn.iter().enumerate().for_each(|(rank_i, v)| {
+                //    let (baspar, sbsh, ebsh) = &baspar_distribution[rank_i];
+                //    ri3fn.iter_submatrix_mut(baspar.clone(), 0..auxbas_distribution[my_rank].len())
+                //    .zip(v.iter()).for_each(|(to, from)| {*to = *from});
                 //});
-                //println!("Rank {} debug assert ri3fn with Total Absolute Error of {:?}", my_rank, mse);
-                //// ======= DEBUG IGOR ======
+
+                if my_rank == 0 {println!("debug: enter the mpi communication of ri_v matrix in v03")};
+                mpi_isend_irecv_wrt_distribution_v03(&mpi_op.world, &mut ri3fn, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, baspar_distribution, loc_ri3fn.size()[0]);
+                if my_rank == 0 {println!("debug: leave the mpi communication of ri_v matrix in v03")};
+
+
 
                 (ri3fn, basbas2baspar, baspar2basbas)
             } else {
