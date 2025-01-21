@@ -8,3 +8,7 @@ Cargo.lock
 bse_pool
 /examples/WFA/fchk/*chk
 /examples/WFA/fchk/*log
+
+# Ignore the map for names and values of libxc
+# This file is generated automatically during the build process
+src/dft/libxc/names_and_values.rs

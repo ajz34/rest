@@ -1,5 +1,7 @@
 #![allow(unused)]
 pub mod ffi_xc;
+pub mod names_and_values;
+
 use std::convert::TryInto;
 use std::os::raw::c_int;
 use std::os::raw::c_double;
@@ -130,27 +132,23 @@ impl XcFuncType {
             (402,0,0)
         } else if lower_name.eq(&"x3lyp".to_string()) {
             (411,0,0)
+        } else if lower_name.eq(&"pbe0".to_string()) {
+            (406,0,0)
         // for a list of exchange functionals
         } else if lower_name.eq(&"lda_x_slater".to_string()) {
             (0,1,0)
-        } else if lower_name.eq(&"gga_x_b88".to_string()) {
-            (0,106,0)
-        } else if lower_name.eq(&"gga_x_pbe".to_string()) {
-            (0,101,0)
-        } else if lower_name.eq(&"gga_x_xpbe".to_string()) {
-            (0,123,0)
-        // for a list of correlation functionals
-        } else if lower_name.eq(&"lda_c_vwn".to_string()) {
-            (0,0,7)
-        } else if lower_name.eq(&"lda_c_vwn_rpa".to_string()) {
-            (0,0,8)
-        } else if lower_name.eq(&"gga_c_lyp".to_string()) {
-            (0,0,131)
-        } else if lower_name.eq(&"gga_c_pbe".to_string()) {
-            (0,0,130)
-        } else if lower_name.eq(&"gga_c_xpbe".to_string()) {
-            (0,0,136)
         } else {
+            for (name, value) in names_and_values::MAP.iter() {
+                if name.starts_with("XC_") && format!("xc_{}", lower_name) == name.to_lowercase() {
+                    if name.contains("_XC_") {
+                        return (*value, 0, 0);
+                    } else if name.contains("_C_") {
+                        return (0, 0, *value);
+                    } else if name.contains("_X_") {
+                        return (0, *value, 0);
+                    }
+                }
+            }
             (0,0,0)
         }
     }
