@@ -4116,23 +4116,26 @@ pub fn diagonalize_hamiltonian_outside(scf_data: &SCF, mpi_operator: &Option<MPI
     // NOTE:: to fully utilize all CPU resources, a scalapack memory distribution is necessary.
     if let Some(mpi_io) = mpi_operator {
         if mpi_io.rank == 0 {
-            (eigenvectors, eigenvalues, num_state) = diagonalize_hamiltonian_outside_rayon(scf_data);
+            (eigenvectors, eigenvalues, num_state) = diagonalize_hamiltonian_outside_fast(scf_data);
         }
         for i_spin in 0..scf_data.mol.spin_channel {
             mpi_broadcast_vector(&mpi_io.world, &mut eigenvalues[i_spin], 0);
             mpi_broadcast_matrixfull(&mpi_io.world, &mut eigenvectors[i_spin], 0);
         }
+        mpi_broadcast(&mpi_io.world, &mut num_state, 0);
 
 
     } else {
-        (eigenvectors, eigenvalues, num_state) = diagonalize_hamiltonian_outside_rayon(scf_data);
+        (eigenvectors, eigenvalues, num_state) = diagonalize_hamiltonian_outside_fast(scf_data);
     }
 
+    //println!("diagonalize_hamiltonian_outside: num_state {}", num_state);
 
-    (eigenvectors, eigenvalues, num_state)
+
+    (eigenvectors, eigenvalues, scf_data.mol.num_state)
 }
 
-pub fn adiagonalize_hamiltonian_fast(scf_data: &SCF)  -> ([MatrixFull<f64>;2], [Vec<f64>;2], usize) {
+pub fn diagonalize_hamiltonian_outside_fast(scf_data: &SCF)  -> ([MatrixFull<f64>;2], [Vec<f64>;2], usize) {
     let spin_channel = scf_data.mol.spin_channel;
     let mut num_state = scf_data.mol.num_state;
     let dt1 = time::Local::now();
@@ -4161,8 +4164,9 @@ pub fn adiagonalize_hamiltonian_fast(scf_data: &SCF)  -> ([MatrixFull<f64>;2], [
 pub fn diagonalize_hamiltonian_outside_rayon(scf_data: &SCF) -> ([MatrixFull<f64>;2], [Vec<f64>;2], usize) {
     let spin_channel = scf_data.mol.spin_channel;
     let num_state = scf_data.mol.num_state;
+    //println!("diagonalize_hamiltonian_outside_rayon: num_state {}", num_state);
     let dt1 = time::Local::now();
-    let mut num_state_out = 0_usize;
+    let mut num_state_out = num_state;
 
     let mut eigenvectors = [MatrixFull::empty(),MatrixFull::empty()];
     let mut eigenvalues = [Vec::new(),Vec::new()];
@@ -4185,12 +4189,15 @@ pub fn diagonalize_hamiltonian_outside_rayon(scf_data: &SCF) -> ([MatrixFull<f64
         },
         _ => {
             for i_spin in (0..spin_channel) {
-                let (eigenvector_spin, eigenvalue_spin, num_state_out)=
+                let (eigenvector_spin, eigenvalue_spin, tmp_num_state_out)=
                     _dspgvx(&scf_data.hamiltonian[i_spin], &scf_data.ovlp, num_state).unwrap();
                     //self.hamiltonian[i_spin].to_matrixupperslicemut()
                     //.lapack_dspgvx(self.ovlp.to_matrixupperslicemut(),num_state).unwrap();
                 eigenvectors[i_spin] = eigenvector_spin;
                 eigenvalues[i_spin] = eigenvalue_spin;
+                if tmp_num_state_out < num_state_out {
+                    num_state_out = tmp_num_state_out;
+                }
             }
         }
     }
