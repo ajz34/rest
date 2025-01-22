@@ -2566,17 +2566,15 @@ impl SCF {
 
             let mut tot_elec = mpi_reduce(world, &total_elec, 0, &SystemOperation::sum());
             total_elec.iter_mut().zip(tot_elec.iter()).for_each(|(to, from)| *to = *from);
-            mpi_broadcast(&world, &mut total_elec, 0);
+            //mpi_broadcast(&world, &mut total_elec, 0);
 
             let mut tot_xc: Vec<MatrixUpper<f64>> = vec![MatrixUpper::empty(), MatrixUpper::empty()];
             for i_spin in 0..self.mol.spin_channel {
                 let mut xc_spin = tot_xc.get_mut(i_spin).unwrap();
                 let mut result= mpi_reduce(world, tmp_mat[i_spin].data_ref().unwrap(), 0, &SystemOperation::sum());
-                mpi_broadcast_vector(&world, &mut result, 0);
+                //mpi_broadcast_vector(&world, &mut result, 0);
                 *xc_spin = MatrixUpper::from_vec(result.len(), result).unwrap();
             } 
-
-
 
             (total_elec, tot_exc, tot_xc)
 
@@ -4001,6 +3999,8 @@ fn ao2mo_rayon<'a, T, P>(eigenvector: &T, rimat_chunk: &P, row_dim: std::ops::Ra
           P: BasicMatrix<'a, f64>
 {
     ao2mo_rayon_v02(eigenvector, rimat_chunk, row_dim, column_dim)
+    //let mut 
+    //ri_ao2mo_f
 }
 
 fn ao2mo_rayon_v01<'a, T, P>(eigenvector: &T, rimat_chunk: &P, row_dim: std::ops::Range<usize>, column_dim: std::ops::Range<usize>)

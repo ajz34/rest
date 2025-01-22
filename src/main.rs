@@ -84,11 +84,11 @@ mod post_scf_analysis;
 mod external_libs;
 //use rayon;
 #[global_allocator]
-static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+//static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use crate::constants::EV;
 use crate::grad::{formated_force, numerical_force};
 use crate::initial_guess::enxc::{effective_nxc_matrix, effective_nxc_tensors};
-//static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 //use crate::grad::rhf::Gradient;
 use crate::initial_guess::sap::*;
 
