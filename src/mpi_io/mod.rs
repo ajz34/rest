@@ -273,6 +273,7 @@ where Q: Add<Output=Q> + AddAssign +
     let rank = world.rank() as usize;
     let root_process = world.process_at_rank(root_rank as i32);
 
+    //let mut result: Vec<Q> = if rank == root_rank {vec![Q::zero(); data.len()]} else {vec![]};
     let mut result: Vec<Q> = vec![Q::zero(); data.len()];
 
     //println!("debug rank {} and data {:?} in mpi_reduce before", rank, &data);
@@ -281,13 +282,33 @@ where Q: Add<Output=Q> + AddAssign +
         root_process.reduce_into_root(&data[..], &mut result, op);
     } else {
         root_process.reduce_into(&data[..], op);
-
     }
 
-    world.barrier();
+    //world.barrier();
 
     result
 }
+
+pub fn mpi_allreduce<Q>(world: &SimpleCommunicator, data: &[Q], reduced_data: &mut [Q], op: &SystemOperation)
+where Q: Add<Output=Q> + AddAssign + 
+         Sub<Output=Q> + SubAssign + 
+         Mul<Output=Q> + MulAssign + 
+         Div<Output=Q> + DivAssign + 
+         Zero + Send + Sync + Copy + Debug + Buffer + 'static,
+      [Q]: Buffer + BufferMut,
+      Vec<Q>: BufferMut
+      
+{
+
+    let batch = communicate_by_batch(data.len());
+
+    for i_batch in batch {
+        world.any_process().all_reduce_into(&data[i_batch.clone()], &mut reduced_data[i_batch.clone()], op);
+    }
+
+    //world.barrier();
+}
+
 
 pub fn mpi_broadcast<Q>(world: &SimpleCommunicator, data: &mut Q, root_rank: usize)
 where Q: Send + Sync + Buffer + Debug + BufferMut + 'static,

@@ -2515,24 +2515,26 @@ impl SCF {
             let world = &mpi_world.world;
             let my_rank = mpi_world.rank;
 
-            let (mut total_elec, exc, tmp_mat) = self.generate_vxc_rayon_dm_only(scaling_factor);
+            let (mut total_elec, exc, mut vxc) = self.generate_vxc_rayon_dm_only(scaling_factor);
 
             let mut tot_exc = mpi_reduce(world, &[exc], 0, &SystemOperation::sum())[0];
-            mpi_broadcast(&world, &mut tot_exc, 0);
+            //mpi_broadcast(&world, &mut tot_exc, 0);
 
             let mut tot_elec = mpi_reduce(world, &total_elec, 0, &SystemOperation::sum());
             total_elec.iter_mut().zip(tot_elec.iter()).for_each(|(to, from)| *to = *from);
-            mpi_broadcast(&world, &mut total_elec, 0);
+            //mpi_broadcast(&world, &mut total_elec, 0);
 
-            let mut tot_xc: Vec<MatrixUpper<f64>> = vec![MatrixUpper::empty(), MatrixUpper::empty()];
+            //let mut tot_xc: Vec<MatrixUpper<f64>> = vec![MatrixUpper::empty(), MatrixUpper::empty()];
             for i_spin in 0..self.mol.spin_channel {
-                let mut xc_spin = tot_xc.get_mut(i_spin).unwrap();
-                let mut result= mpi_reduce(world, tmp_mat[i_spin].data_ref().unwrap(), 0, &SystemOperation::sum());
-                mpi_broadcast_vector(&world, &mut result, 0);
-                *xc_spin = MatrixUpper::from_vec(result.len(), result).unwrap();
+                let mut result= mpi_reduce(world, vxc[i_spin].data_ref().unwrap(), 0, &SystemOperation::sum());
+                let mut xc_spin = vxc.get_mut(i_spin).unwrap();
+                //mpi_broadcast_vector(&world, &mut result, 0);
+                //if mpi_world.rank==0 {
+                    xc_spin.data = result;
+                //}
             } 
 
-            (total_elec, tot_exc, tot_xc)
+            (total_elec, tot_exc, vxc)
 
         } else {
             self.generate_vxc_rayon_dm_only(scaling_factor)
@@ -2559,24 +2561,27 @@ impl SCF {
             let world = &mpi_world.world;
             let my_rank = mpi_world.rank;
 
-            let (mut total_elec, exc, tmp_mat) = self.generate_vxc_rayon(scaling_factor);
+            let (mut total_elec, exc, mut vxc) = self.generate_vxc_rayon(scaling_factor);
 
             let mut tot_exc = mpi_reduce(world, &[exc], 0, &SystemOperation::sum())[0];
             mpi_broadcast(&world, &mut tot_exc, 0);
 
             let mut tot_elec = mpi_reduce(world, &total_elec, 0, &SystemOperation::sum());
             total_elec.iter_mut().zip(tot_elec.iter()).for_each(|(to, from)| *to = *from);
-            //mpi_broadcast(&world, &mut total_elec, 0);
+            mpi_broadcast(&world, &mut total_elec, 0);
 
-            let mut tot_xc: Vec<MatrixUpper<f64>> = vec![MatrixUpper::empty(), MatrixUpper::empty()];
+            //let mut tot_xc: Vec<MatrixUpper<f64>> = vec![MatrixUpper::empty(), MatrixUpper::empty()];
             for i_spin in 0..self.mol.spin_channel {
-                let mut xc_spin = tot_xc.get_mut(i_spin).unwrap();
-                let mut result= mpi_reduce(world, tmp_mat[i_spin].data_ref().unwrap(), 0, &SystemOperation::sum());
+                let mut result= mpi_reduce(world, vxc[i_spin].data_ref().unwrap(), 0, &SystemOperation::sum());
+
+                let mut xc_spin = vxc.get_mut(i_spin).unwrap();
                 //mpi_broadcast_vector(&world, &mut result, 0);
-                *xc_spin = MatrixUpper::from_vec(result.len(), result).unwrap();
+                if mpi_world.rank==0 {
+                    xc_spin.data = result;
+                } 
             } 
 
-            (total_elec, tot_exc, tot_xc)
+            (total_elec, tot_exc, vxc)
 
         } else {
             self.generate_vxc_rayon(scaling_factor)
@@ -2871,7 +2876,9 @@ pub fn vj_upper_with_rimatr_sync_mpi(
             let vj = &mut vj_vec[i_spin];
             let mut tot_vj = mpi_reduce(&mpi_op.world, vj.data_ref().unwrap(), 0, &SystemOperation::sum());
             mpi_broadcast_vector(&mpi_op.world, &mut tot_vj, 0);
-            vj.data = tot_vj;
+            //if mpi_op.rank == 0 {
+                vj.data = tot_vj;
+            //}
         }
         vj_vec
     } else {
@@ -3266,7 +3273,9 @@ pub fn vk_upper_with_rimatr_use_dm_only_sync_mpi(
             let vk = &mut vk_vec[i_spin];
             let mut tot_vk = mpi_reduce(&mpi_op.world, vk.data_ref().unwrap(), 0, &SystemOperation::sum());
             mpi_broadcast(&mpi_op.world, &mut tot_vk, 0);
-            vk.data = tot_vk;
+            //if mpi_op.rank == 0 {
+                vk.data = tot_vk;
+            //}
         };
         vk_vec
     } else {
@@ -3286,7 +3295,9 @@ pub fn vk_upper_with_rimatr_sync_mpi(
             let vk = &mut vk_vec[i_spin];
             let mut tot_vk = mpi_reduce(&mpi_op.world, vk.data_ref().unwrap(), 0, &SystemOperation::sum());
             mpi_broadcast(&mpi_op.world, &mut tot_vk, 0);
-            vk.data = tot_vk;
+            //if mpi_op.rank == 0 {
+                vk.data = tot_vk;
+            //}
         };
         vk_vec
     } else {
