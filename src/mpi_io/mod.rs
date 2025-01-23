@@ -141,7 +141,7 @@ impl MPIData {
 
     }
 
-    pub fn distribution_opposite_spin_virtual_orbital_pair(&self, lumo_1: usize, lumo_2: usize, num_state: usize) -> Vec<[usize;2]> {
+    pub fn distribution_opposite_spin_virtual_orbital_pair(&self, lumo_1: usize, lumo_2: usize, num_state: usize, parallel_mode: usize) -> Vec<[usize;2]> {
 
         let mut elec_pair: Vec<[usize;2]> = vec![];
         for i_state in lumo_1..num_state {
@@ -150,12 +150,17 @@ impl MPIData {
             }
         };
 
-        let distribution_vec = average_distribution(elec_pair.len(), self.size);
-
-        let loc_elec_pair = elec_pair[distribution_vec[self.rank].clone()].to_vec();
-
-        loc_elec_pair
-
+        if parallel_mode == 0 {
+            let distribution_vec = average_distribution(elec_pair.len(), self.size);
+            let loc_elec_pair = elec_pair[distribution_vec[self.rank].clone()].to_vec();
+            loc_elec_pair
+        } else {
+            if self.rank == 0 {
+                elec_pair
+            } else {
+                vec![]
+            }
+        }
     }
 
     pub fn distribute_rimatr_tasks(&mut self, num_auxbas: usize, num_basis: usize, cint_bas: Vec<Vec<usize>>,) {
@@ -317,7 +322,7 @@ where Q: Send + Sync + Buffer + Debug + BufferMut + 'static,
     let root_process = world.process_at_rank(root_rank as i32);
     root_process.broadcast_into(data);
 
-    let rank = world.rank();
+    //let rank = world.rank();
     //println!("debug Rank {} received value: {:?}", rank, &data);
 
 }

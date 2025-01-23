@@ -858,7 +858,7 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
 
                     let mut eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
                     let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
-                    let virt_os_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_1, lumo_2, num_state);
+                    let virt_os_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_1, lumo_2, num_state, scf_data.mol.ctrl.pt2_mpi_mode);
 
 
                     // prepare the elec_pair for the rayon parallelization
@@ -1025,7 +1025,7 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
             //let (sender, receiver) = channel();
             //elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
 
-            let virt_os_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state);
+            let virt_os_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state, scf_data.mol.ctrl.pt2_mpi_mode);
 
             for i_state in start_mo..num_occu {
                 for j_state in i_state..num_occu {
