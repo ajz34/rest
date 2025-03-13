@@ -296,4 +296,4 @@ pub const DEBYE:f64 = 3.335641e-30;            // C*m = 1e-18/LIGHT_SPEED_SI htt
 pub const AU2DEBYE:f64 = E_CHARGE * BOHR*1e-10 / DEBYE; // 2.541746
 
 
-pub const MPI_CHUNK:usize = 134217728; // around 1 Gb
+pub const MPI_CHUNK:usize = 134217728; // around 1 GB

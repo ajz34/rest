@@ -10,7 +10,7 @@ use libc::regerror;
 use statrs::distribution::Continuous;
 use tensors::{map_upper_to_full, BasicMatrix, SubMatrixUpper};
 use tensors::external_libs::{ri_copy_from_ri, matr_copy_from_ri};
-use tensors::matrix_blas_lapack::{_dgemm, _dgemm_full, _power, _power_rayon, _newton_schulz_inverse_square_root_v02};
+use tensors::matrix_blas_lapack::{_dgemm, _dgemm_full, _power, _power_rayon_for_symmetric_matrix, _newton_schulz_inverse_square_root_v02};
 use std::collections::HashMap;
 use std::fmt::format;
 use std::fs;
@@ -27,7 +27,7 @@ use crate::dft::DFA4REST;
 use crate::geom_io::{GeomCell,MOrC, GeomUnit, get_mass_charge};
 use crate::basis_io::{ecp, BasInfo, Basis4Elem};
 use crate::ctrl_io::{overall_report_on_ctrl_geom, InputKeywords};
-use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, MPIData, MPIOperator, mpi_isend_irecv_wrt_distribution_v02};
+use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, mpi_isend_irecv_wrt_distribution_v02, mpi_isend_irecv_wrt_distribution_v03, MPIData, MPIOperator};
 use crate::utilities;
 use crate::basis_io::bse_downloader::{self, ctrl_element_checker, local_element_checker};
 use crate::basis_io::basis_list::{self, basis_fuzzy_matcher, check_basis_name};
@@ -1776,6 +1776,7 @@ impl Molecule {
     }
 
     pub fn int_ij_aux_columb_new(&self) -> MatrixFull<f64> {
+        utilities::omp_set_num_threads_wrapper(self.ctrl.num_threads.unwrap());
         let n_auxbas = self.num_auxbas;
         let mut cint_data = self.initialize_cint(true);
         let n_basis_shell = self.cint_bas.len() as i32;
@@ -2267,7 +2268,7 @@ impl Molecule {
         let mut aux_v = self.int_ij_aux_columb();
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.lapack_power(-0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap();
         time_records.count("inv_sqrt");
@@ -2470,7 +2471,7 @@ impl Molecule {
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
         //aux_v = aux_v.lapack_power(-0.5, AUXBAS_THRESHOLD).unwrap();
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap();
         time_records.count("inv_sqrt");
 
@@ -2633,7 +2634,7 @@ impl Molecule {
         let mut aux_v = self.int_ij_aux_columb();
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap_or(
         //    _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap()
         //);
@@ -2793,7 +2794,7 @@ impl Molecule {
 
     pub fn prepare_inv_aux_matr(&self) -> MatrixFull<f64> {
         let mut aux_v = self.int_ij_aux_columb();
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         aux_v
     }
 
@@ -2826,7 +2827,9 @@ impl Molecule {
 
             let my_rank = mpi_op.rank;
 
+            if my_rank == 0 {println!("debug: enter the generation of inv_aux_matr")};
             let aux_v = self.prepare_inv_aux_matr();
+            if my_rank == 0 {println!("debug: leave the generation of inv_aux_matr")};
             let (basbas2baspar, baspar2basbas) = self.prepare_baspair_map();
             if let (Some(auxbas_distribution), Some(baspar_distribution)) = 
                 (&loc_mpi_data.auxbas, &loc_mpi_data.baspar) {
@@ -2839,32 +2842,23 @@ impl Molecule {
                 } else {
                     MatrixFull::empty()
                 };
-                ////if my_rank == 3 {
-                //    println!("debug rank {}, sbsh: {}, ebsh: {}", my_rank, sbsh, ebsh);
-                //    println!("debug rank {}, loc_ri3fn: {:?}", my_rank, &loc_ri3fn.size());
-                ////};
 
-                //println!("debug mpi 0 of rank {}", my_rank);
-                let loc_ri3fn = mpi_isend_irecv_wrt_distribution_v02(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
-                //let loc_start = mpi_isend_irecv_wrt_distribution(&mpi_op.world, &baspar, baspar_distribution, 1);
-                //println!("debug mpi 1 of rank {}", my_rank);
-                //if my_rank == 3 {println!("debug rank {}, loc_ri3fn: {:?}", my_rank, &loc_ri3fn)};
+                ////println!("debug mpi 0 of rank {}", my_rank);
+                //if my_rank == 0 {println!("debug: enter the mpi communication of ri_v matrix")};
+                //let loc_ri3fn = mpi_isend_irecv_wrt_distribution_v02(&mpi_op.world, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, loc_ri3fn.size()[0]);
+                //if my_rank == 0 {println!("debug: leave the mpi communication of ri_v matrix")};
                 
-                loc_ri3fn.iter().enumerate().for_each(|(rank_i, v)| {
-                    let (baspar, sbsh, ebsh) = &baspar_distribution[rank_i];
-                    ri3fn.iter_submatrix_mut(baspar.clone(), 0..auxbas_distribution[my_rank].len())
-                    .zip(v.iter()).for_each(|(to, from)| {*to = *from});
-                });
-
-
-                //// ======= DEBUG IGOR ======
-                //let (test_ri3fn, _, _) = self.prepare_rimatr_for_ri_v_rayon();
-                //let mse = test_ri3fn.iter_submatrix(0..n_baspar, auxbas_distribution[my_rank].clone())
-                //   .zip(ri3fn.data_ref().unwrap().iter()).fold(0.0, |acc, (test_v, v)| {
-                //    acc + (test_v-v).abs()
+                //loc_ri3fn.iter().enumerate().for_each(|(rank_i, v)| {
+                //    let (baspar, sbsh, ebsh) = &baspar_distribution[rank_i];
+                //    ri3fn.iter_submatrix_mut(baspar.clone(), 0..auxbas_distribution[my_rank].len())
+                //    .zip(v.iter()).for_each(|(to, from)| {*to = *from});
                 //});
-                //println!("Rank {} debug assert ri3fn with Total Absolute Error of {:?}", my_rank, mse);
-                //// ======= DEBUG IGOR ======
+
+                if my_rank == 0 {println!("debug: enter the mpi communication of ri_v matrix in v03")};
+                mpi_isend_irecv_wrt_distribution_v03(&mpi_op.world, &mut ri3fn, &loc_ri3fn.data_ref().unwrap(), auxbas_distribution, baspar_distribution, loc_ri3fn.size()[0]);
+                if my_rank == 0 {println!("debug: leave the mpi communication of ri_v matrix in v03")};
+
+
 
                 (ri3fn, basbas2baspar, baspar2basbas)
             } else {
@@ -3036,7 +3030,7 @@ impl Molecule {
         let mut aux_v = self.int_ij_aux_columb();
         time_records.count("aux_ij");
         time_records.count_start("inv_sqrt");
-        aux_v = _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
+        aux_v = _power_rayon_for_symmetric_matrix(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap();
         //aux_v = aux_v.to_matrixfullslicemut().cholesky_decompose_inverse('L').unwrap_or(
         //    _power_rayon(&aux_v, -0.5, AUXBAS_THRESHOLD).unwrap()
         //);

@@ -908,7 +908,7 @@ pub fn close_shell_sbge2_rayon_mpi(scf_data: &crate::scf_io::SCF,mpi_operator:&O
                         };
 
                         let mut denominator = MatrixFull::new([vir_range.len(),vir_range.len()],[0.0_f64;2]);
-                        let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state);
+                        let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state, scf_data.mol.ctrl.pt2_mpi_mode);
                         let (sender, receiver) = channel();
                         loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
                             let mut e_mp2_term_ss = 0.0_f64;
@@ -1102,7 +1102,7 @@ pub fn close_shell_eij_rayon_mpi(
         let mut eij_ss = 0.0f64;
         let mut eij_os = 0.0f64;
 
-        let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state);
+        let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state, 0);
         if screening_factor.abs().lt(&1.0E-6) {
             let (sender, receiver) = channel();
             loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
@@ -1382,7 +1382,7 @@ pub fn open_shell_sbge2_rayon_mpi(scf_data: &crate::scf_io::SCF, mpi_operator:&O
                                     MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
                                 };
                                 let mut denominator = MatrixFull::new([vir_range.len(),vir_range.len()],[0.0_f64;2]);
-                                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_1, lumo_2, num_state);
+                                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_1, lumo_2, num_state, scf_data.mol.ctrl.pt2_mpi_mode);
                                 let (sender, receiver) = channel();
                                 loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
                                     let i_virt = i_pair[0];
@@ -1625,7 +1625,7 @@ pub fn open_shell_eij_rayon_mpi(
                     eij_ss += tmp_energy_term_ss;
                 });
             } else {
-                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_i, lumo_j, num_state);
+                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_i, lumo_j, num_state, 0);
                 let (sender, receiver) = channel();
                 loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
                 //for i_virt in lumo_i..num_state {
@@ -1681,7 +1681,7 @@ pub fn open_shell_eij_rayon_mpi(
                 });
                 //println!("debug: mp2_ss={:16.8}, eij_ss={:16.8}", previous_eij_ss, eij_ss);
             } else {
-                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_i, lumo_j, num_state);
+                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_i, lumo_j, num_state, 0);
                 let (sender, receiver) = channel();
                 loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
                     let i_virt = i_pair[0];

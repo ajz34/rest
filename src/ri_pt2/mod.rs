@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 use mpi::collective::SystemOperation;
-use pyrest::mpi_io::{mpi_broadcast, mpi_broadcast_vector};
+use pyrest::mpi_io::{mpi_allreduce, mpi_broadcast, mpi_broadcast_vector};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator, IntoParallelRefIterator};
 use rayon::slice::ParallelSlice;
 use rest_tensors::{TensorOpt,RIFull, MatrixFull};
@@ -84,6 +84,9 @@ pub fn xdh_calculations(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) 
             println!("generate RI3MO only for occ_range:{:?}, vir_range:{:?}", &occ_range, &vir_range)
         };
         scf_data.generate_ri3mo_rayon(vir_range, occ_range);
+        if scf_data.mol.ctrl.print_level>1 {
+            println!("Finish the RI3MO generation")
+        };
         timerecords.count("ao2mo");
         timerecords.count_start("c_r5dft");
         pt2_c = if scf_data.mol.spin_channel == 1 {
@@ -707,11 +710,12 @@ pub fn open_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
 
 pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperator>) -> anyhow::Result<[f64;3]> {
 
+    let print_level = scf_data.mol.ctrl.print_level;
+
     if let (Some(mpi_op), Some(mpi_ix)) = (&mpi_operator, &scf_data.mol.mpi_data) {
-        // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
-        // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
-        let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-        utilities::omp_set_num_threads_wrapper(1);
+
+        let num_threads = if let Some(nt) = scf_data.mol.ctrl.num_threads {nt} else {1};
+        utilities::omp_set_num_threads_wrapper(num_threads);
 
         let mut e_mp2_ss = 0.0_f64;
         let mut e_mp2_os = 0.0_f64;
@@ -733,6 +737,7 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
             //let num_auxbas = scf_data.mol.num_auxbas;
             let spin_channel = scf_data.mol.spin_channel;
             let i_spin_pair: [(usize,usize);3] = [(0,0),(0,1),(1,1)];
+            
 
             for (i_spin_1,i_spin_2) in i_spin_pair {
                 if i_spin_1 == i_spin_2 {
@@ -749,6 +754,9 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                     let num_occu = if scf_data.mol.num_elec[i_spin + 1] <= 1.0e-6 {0} else {homo + 1};
 
                     let (rimo, vir_range, occ_range) = &ri3mo_vec[i_spin];
+                    let mut eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                    let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                    let virt_ss_pair = mpi_ix.distribution_same_spin_virtual_orbital_pair(lumo, num_state);
 
                     for i_state in start_mo..num_occu {
                         for j_state in i_state..num_occu {
@@ -765,26 +773,32 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                                 let j_loc_state = j_state-occ_range.start;
                                 let ri_i = rimo.get_reducing_matrix(i_loc_state).unwrap();
                                 let ri_j = rimo.get_reducing_matrix(j_loc_state).unwrap();
-                                let mut eri_virt = {
-                                    let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
-                                    _dgemm(
-                                        &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
-                                        &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
-                                        &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
-                                        1.0,0.0);
-                                    let mut eri_virt = mpi_reduce(&mpi_op.world, &loc_eri_virt.data_ref().unwrap(), 0, &SystemOperation::sum());
-                                    mpi_broadcast_vector(&mpi_op.world, &mut eri_virt, 0);
-                                    MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
-                                };
+                                //if print_level >= 2 {
+                                //    println!("Debug: enter the preparation of eri_virt");
+                                //}
+                                //let mut eri_virt = {
+                                    //let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                                _dgemm(
+                                    &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
+                                    &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
+                                    &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
+                                    1.0,0.0);
+                                mpi_allreduce(&mpi_op.world, loc_eri_virt.data_ref().unwrap(), eri_virt.data_ref_mut().unwrap(), &SystemOperation::sum());
+                                //let mut eri_virt = mpi_reduce(&mpi_op.world, &loc_eri_virt.data_ref().unwrap(), 0, &SystemOperation::sum());
+                                //mpi_broadcast_vector(&mpi_op.world, &mut eri_virt, 0);
+                                //MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
+                                //};
+                                //if print_level >= 2 {
+                                //    println!("Debug: leave the preparation of eri_virt");
+                                //}
                                 //// ==== DEBUG IGOR ====
                                 //if i_state == 1 && j_state== 2 && my_rank == 0 {
                                 //    eri_virt.formated_output(5, "full");
                                 //}
                                 //// ==== DEBUG IGOR ====
 
-                                let loc_virt_pair = mpi_ix.distribution_same_spin_virtual_orbital_pair(lumo, num_state);
                                 let (sender, receiver) = channel();
-                                loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
+                                virt_ss_pair.par_iter().for_each_with(sender,|s,i_pair| {
                                     let mut e_mp2_term_ss = 0.0_f64;
                                     let i_virt = i_pair[0];
                                     let j_virt = i_pair[1];
@@ -813,6 +827,9 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                                     s.send(e_mp2_term_ss).unwrap()
                                 });
                                 e_mp2_ss -= receiver.into_iter().sum::<f64>();
+                                if print_level >= 2 {
+                                    println!("Debug: ({},{}) with the same spin ({}) finishes ", i_state,j_state, i_spin_1);
+                                }
                             }
                         }
                     }
@@ -838,6 +855,10 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                     //let num_occu_2 = lumo_2;
                     let num_occu_2 = if scf_data.mol.num_elec[i_spin_2 + 1] <= 1.0e-6 {0} else {homo_2 + 1};
                     let (rimo_2, _, _) = &ri3mo_vec[i_spin_2];
+
+                    let mut eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                    let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                    let virt_os_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_1, lumo_2, num_state, scf_data.mol.ctrl.pt2_mpi_mode);
 
 
                     // prepare the elec_pair for the rayon parallelization
@@ -872,17 +893,29 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                                 //    &ri_j,(0..num_auxbas,0..vir_range.len()) , 'N', 
                                 //    &mut eri_virt, (0..vir_range.len(),0..vir_range.len()), 
                                 //    1.0,0.0);
-                                let mut eri_virt = {
-                                    let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
-                                    _dgemm(
-                                        &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
-                                        &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
-                                        &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
-                                        1.0,0.0);
-                                    let mut eri_virt = mpi_reduce(&mpi_op.world, &loc_eri_virt.data_ref().unwrap(), 0, &SystemOperation::sum());
-                                    mpi_broadcast(&mpi_op.world, &mut eri_virt, 0);
-                                    MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
-                                };
+                                //if print_level >= 2 {
+                                //    println!("Debug: enter the preparation of eri_virt");
+                                //}
+                                //let mut eri_virt = {
+                                //    let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                                //    _dgemm(
+                                //        &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
+                                //        &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
+                                //        &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
+                                //        1.0,0.0);
+                                //    let mut eri_virt = mpi_reduce(&mpi_op.world, &loc_eri_virt.data_ref().unwrap(), 0, &SystemOperation::sum());
+                                //    mpi_broadcast(&mpi_op.world, &mut eri_virt, 0);
+                                //    MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
+                                //};
+                                //if print_level >= 2 {
+                                //    println!("Debug: leave the preparation of eri_virt");
+                                //}
+                                _dgemm(
+                                    &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
+                                    &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
+                                    &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
+                                    1.0,0.0);
+                                mpi_allreduce(&mpi_op.world, loc_eri_virt.data_ref().unwrap(), eri_virt.data_ref_mut().unwrap(), &SystemOperation::sum());
                                 //// ==== DEBUG IGOR ====
                                 //if i_state == 0 && j_state== 0 && my_rank == 0 {
                                 //    println!("my rank = {}", my_rank);
@@ -893,9 +926,8 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                                 //    eri_virt.formated_output(5, "full");
                                 //}
                                 //// ==== DEBUG IGOR ====
-                                let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo_1, lumo_2, num_state);
                                 let (sender, receiver) = channel();
-                                loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
+                                virt_os_pair.par_iter().for_each_with(sender,|s,i_pair| {
                                     let mut e_mp2_term_os = 0.0_f64;
                                     let i_virt = i_pair[0];
                                     let j_virt = i_pair[1];
@@ -923,24 +955,19 @@ pub fn open_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperato
                                     
                                 });
                                 e_mp2_os -= receiver.into_iter().sum::<f64>();
+                                if print_level >= 2 {
+                                    println!("Debug: ({},{}) with the opposite spin ({},{}) finishes ", i_state,j_state, i_spin_1, i_spin_2);
+                                }
                             }
                         }
                     };
                 }
             }
-
-            //// sum up the ss and os contribution from the mpi tasks.
-            //let mut e_mp2_ss = mpi_reduce(&mpi_op.world, &mut [e_mp2_ss], 0, &SystemOperation::sum())[0];
-            //mpi_broadcast(&mpi_op.world, &mut e_mp2_ss, 0);
-            //println!("debug rank {}, e_mp2_os: {:16.8} before", my_rank, e_mp2_os);
-            //let mut e_mp2_os = mpi_reduce(&mpi_op.world, &mut [e_mp2_os], 0, &SystemOperation::sum())[0];
-            //mpi_broadcast(&mpi_op.world, &mut e_mp2_os, 0);
-            //println!("debug rank {}, e_mp2_os: {:16.8} after", my_rank, e_mp2_os);
         } else {
             panic!("RI3MO should be initialized before the PT2 calculations")
         };
         // reuse the default omp_num_threads setting
-        utilities::omp_set_num_threads_wrapper(default_omp_num_threads);
+        //utilities::omp_set_num_threads_wrapper(default_omp_num_threads);
 
         //// sum up the ss and os contribution from the mpi tasks.
         let mut e_mp2_ss = mpi_reduce(&mpi_op.world, &mut [e_mp2_ss], 0, &SystemOperation::sum())[0];
@@ -959,8 +986,9 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
     if let (Some(mpi_op), Some(mpi_ix)) = (&mpi_operator, &scf_data.mol.mpi_data) {
         // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
         // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
-        let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-        utilities::omp_set_num_threads_wrapper(1);
+        //let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
+        let num_threads = if let Some(num_threads) = scf_data.mol.ctrl.num_threads {num_threads} else {1};
+        utilities::omp_set_num_threads_wrapper(num_threads);
         let mut e_mp2_ss = 0.0_f64;
         let mut e_mp2_os = 0.0_f64;
 
@@ -978,6 +1006,9 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
 
             let (rimo, vir_range, occ_range) = &ri3mo_vec[0];
 
+            let mut eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+            let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+
             let eigenvector = scf_data.eigenvectors.get(0).unwrap();
             let eigenvalues = scf_data.eigenvalues.get(0).unwrap();
             let occupation = scf_data.occupation.get(0).unwrap();
@@ -993,6 +1024,9 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
             let num_occu = if scf_data.mol.num_elec[0] <= 1.0e-6 {0} else {homo + 1};
             //let (sender, receiver) = channel();
             //elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+
+            let virt_os_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state, scf_data.mol.ctrl.pt2_mpi_mode);
+
             for i_state in start_mo..num_occu {
                 for j_state in i_state..num_occu {
 
@@ -1016,20 +1050,25 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
                         //    &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
                         //    &mut eri_virt, (0..vir_range.len(),0..vir_range.len()), 
                         //    1.0,0.0);
-                        let mut eri_virt = {
-                            let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
-                            _dgemm(
-                                &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
-                                &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
-                                &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
-                                1.0,0.0);
-                            let mut eri_virt = mpi_reduce(&mpi_op.world, &loc_eri_virt.data_ref().unwrap(), 0, &SystemOperation::sum());
-                            mpi_broadcast_vector(&mpi_op.world, &mut eri_virt, 0);
-                            MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
-                        };
-                        let loc_virt_pair = mpi_ix.distribution_opposite_spin_virtual_orbital_pair(lumo, lumo, num_state);
+                        //let mut eri_virt = {
+                        //    let mut loc_eri_virt = MatrixFull::new([vir_range.len(),vir_range.len()],0.0_f64);
+                        //    _dgemm(
+                        //        &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
+                        //        &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
+                        //        &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
+                        //        1.0,0.0);
+                        //    let mut eri_virt = mpi_reduce(&mpi_op.world, &loc_eri_virt.data_ref().unwrap(), 0, &SystemOperation::sum());
+                        //    mpi_broadcast_vector(&mpi_op.world, &mut eri_virt, 0);
+                        //    MatrixFull::from_vec([vir_range.len(), vir_range.len()], eri_virt).unwrap()
+                        //};
+                        _dgemm(
+                            &ri_i, (0..num_auxbas_loc,0..vir_range.len()), 'T', 
+                            &ri_j,(0..num_auxbas_loc,0..vir_range.len()) , 'N', 
+                            &mut loc_eri_virt, (0..vir_range.len(),0..vir_range.len()), 
+                            1.0,0.0);
+                        mpi_allreduce(&mpi_op.world, loc_eri_virt.data_ref().unwrap(), eri_virt.data_ref_mut().unwrap(), &SystemOperation::sum());
                         let (sender, receiver) = channel();
-                        loc_virt_pair.par_iter().for_each_with(sender,|s,i_pair| {
+                        virt_os_pair.par_iter().for_each_with(sender,|s,i_pair| {
                             let mut e_mp2_term_ss = 0.0_f64;
                             let mut e_mp2_term_os = 0.0_f64;
                             let i_virt = i_pair[0];
@@ -1076,9 +1115,9 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
             panic!("RI3MO should be initialized before the PT2 calculations")
         };
 
-        // reuse the default omp_num_threads setting
-        utilities::omp_set_num_threads_wrapper(default_omp_num_threads);
-        //tmp_record.report_all();
+        //// reuse the default omp_num_threads setting
+        //utilities::omp_set_num_threads_wrapper(default_omp_num_threads);
+        ////tmp_record.report_all();
 
         // sum up the ss and os contribution from the mpi tasks.
         let mut e_mp2_ss = mpi_reduce(&mpi_op.world, &mut [e_mp2_ss], 0, &SystemOperation::sum())[0];

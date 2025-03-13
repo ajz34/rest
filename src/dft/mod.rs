@@ -1093,6 +1093,12 @@ impl DFA4REST {
             MatrixFull::empty()
         };
 
+        //let paramr = if is_dldft {
+        //    self.update_parameter()
+        //} else {
+        //    self.dfa_paramr_scf
+        //}
+
         self.dfa_compnt_scf.iter().zip(self.dfa_paramr_scf.iter()).for_each(|(xc_func,xc_para)| {
             let xc_func = self.init_libxc(xc_func);
             match xc_func.xc_func_family {

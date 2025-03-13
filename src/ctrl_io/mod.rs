@@ -199,7 +199,8 @@ pub struct InputKeywords {
     pub nforce_displacement: f64,
     pub force_state_occupation: Vec<ForceStateOccupation>,
     pub auxiliary_reference_states: Vec<(String,usize)>,
-    pub rpa_de_excitation_parameters: Option<[f64;4]>
+    pub rpa_de_excitation_parameters: Option<[f64;4]>,
+    pub pt2_mpi_mode: usize
 
 }
 
@@ -303,7 +304,8 @@ impl InputKeywords {
             frac_tolerant: 1.0e-3,
             auxiliary_reference_states: Vec::new(),
             force_state_occupation: Vec::new(),
-            rpa_de_excitation_parameters: None 
+            rpa_de_excitation_parameters: None,
+            pt2_mpi_mode: 0
         }
     }
 
@@ -342,6 +344,11 @@ impl InputKeywords {
                     serde_json::Value::String(tmp_str) => {tmp_str.to_lowercase().parse().unwrap_or(64)},
                     serde_json::Value::Number(tmp_num) => {tmp_num.as_i64().unwrap_or(64) as usize},
                     other => {64},
+                };
+                tmp_input.pt2_mpi_mode = match tmp_ctrl.get("pt2_mpi_mode").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_str) => {tmp_str.to_lowercase().parse().unwrap_or(0)},
+                    serde_json::Value::Number(tmp_num) => {tmp_num.as_i64().unwrap_or(0) as usize},
+                    other => {0},
                 };
                 if let Some(num_threads) = tmp_input.num_threads {
                     //if tmp_input.print_level>0 {println!("The number of threads used for parallelism:      {}", num_threads)};

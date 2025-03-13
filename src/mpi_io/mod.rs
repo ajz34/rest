@@ -141,7 +141,7 @@ impl MPIData {
 
     }
 
-    pub fn distribution_opposite_spin_virtual_orbital_pair(&self, lumo_1: usize, lumo_2: usize, num_state: usize) -> Vec<[usize;2]> {
+    pub fn distribution_opposite_spin_virtual_orbital_pair(&self, lumo_1: usize, lumo_2: usize, num_state: usize, parallel_mode: usize) -> Vec<[usize;2]> {
 
         let mut elec_pair: Vec<[usize;2]> = vec![];
         for i_state in lumo_1..num_state {
@@ -150,12 +150,17 @@ impl MPIData {
             }
         };
 
-        let distribution_vec = average_distribution(elec_pair.len(), self.size);
-
-        let loc_elec_pair = elec_pair[distribution_vec[self.rank].clone()].to_vec();
-
-        loc_elec_pair
-
+        if parallel_mode == 0 {
+            let distribution_vec = average_distribution(elec_pair.len(), self.size);
+            let loc_elec_pair = elec_pair[distribution_vec[self.rank].clone()].to_vec();
+            loc_elec_pair
+        } else {
+            if self.rank == 0 {
+                elec_pair
+            } else {
+                vec![]
+            }
+        }
     }
 
     pub fn distribute_rimatr_tasks(&mut self, num_auxbas: usize, num_basis: usize, cint_bas: Vec<Vec<usize>>,) {
@@ -273,6 +278,7 @@ where Q: Add<Output=Q> + AddAssign +
     let rank = world.rank() as usize;
     let root_process = world.process_at_rank(root_rank as i32);
 
+    //let mut result: Vec<Q> = if rank == root_rank {vec![Q::zero(); data.len()]} else {vec![]};
     let mut result: Vec<Q> = vec![Q::zero(); data.len()];
 
     //println!("debug rank {} and data {:?} in mpi_reduce before", rank, &data);
@@ -281,13 +287,33 @@ where Q: Add<Output=Q> + AddAssign +
         root_process.reduce_into_root(&data[..], &mut result, op);
     } else {
         root_process.reduce_into(&data[..], op);
-
     }
 
-    world.barrier();
+    //world.barrier();
 
     result
 }
+
+pub fn mpi_allreduce<Q>(world: &SimpleCommunicator, data: &[Q], reduced_data: &mut [Q], op: &SystemOperation)
+where Q: Add<Output=Q> + AddAssign + 
+         Sub<Output=Q> + SubAssign + 
+         Mul<Output=Q> + MulAssign + 
+         Div<Output=Q> + DivAssign + 
+         Zero + Send + Sync + Copy + Debug + Buffer + 'static,
+      [Q]: Buffer + BufferMut,
+      Vec<Q>: BufferMut
+      
+{
+
+    let batch = communicate_by_batch(data.len());
+
+    for i_batch in batch {
+        world.any_process().all_reduce_into(&data[i_batch.clone()], &mut reduced_data[i_batch.clone()], op);
+    }
+
+    //world.barrier();
+}
+
 
 pub fn mpi_broadcast<Q>(world: &SimpleCommunicator, data: &mut Q, root_rank: usize)
 where Q: Send + Sync + Buffer + Debug + BufferMut + 'static,
@@ -296,7 +322,7 @@ where Q: Send + Sync + Buffer + Debug + BufferMut + 'static,
     let root_process = world.process_at_rank(root_rank as i32);
     root_process.broadcast_into(data);
 
-    let rank = world.rank();
+    //let rank = world.rank();
     //println!("debug Rank {} received value: {:?}", rank, &data);
 
 }
@@ -556,4 +582,87 @@ where
     }
 
     result
+}
+
+pub fn mpi_isend_irecv_wrt_distribution_v03<Q>(
+    world: &SimpleCommunicator,
+    outdata: &mut MatrixFull<Q>,
+    data: &[Q],
+    auxbas_distribution: &[Range<usize>],
+    baspar_distribution: &[(Range<usize>,usize, usize)], 
+    scale: usize)
+where
+    Q: Zero + Clone + Copy + Send + Sync + Buffer + Debug + Clone + BufferMut + 'static,
+    [Q]: Buffer + BufferMut,
+    Vec<Q>: BufferMut,
+{
+    let rank = world.rank() as usize;
+    let size = world.size() as usize;
+
+    let mut scale_vec = vec![scale; size];
+    world.all_gather_into(&scale, &mut scale_vec[..]);
+
+    //let mut result: Vec<Vec<Q>> = vec![vec![]; distribution.len()];
+    //let chunk_len = distribution[rank].len()*scale;
+    //result.iter_mut().enumerate().for_each(|(i,x)| *x = vec![Q::zero(); distribution[rank].len()*scale_vec[i]]);
+
+
+    //println!("debug mpi 0 in rank {} with scale_vec = {:?}, distribution = {:?}", rank, &scale_vec, &distribution[rank]);
+
+    //let mut rreq_vec = vec![];
+    //let mut sreq_vec = vec![];
+    for i in 0..size {
+        for j in 0..size {
+            if rank == j || rank == i {
+                let mut result = if rank == i {vec![Q::zero(); auxbas_distribution[i].len()*scale_vec[j]]} else {Vec::new()};
+
+                let tmp_range = auxbas_distribution[i].start*scale_vec[j] .. auxbas_distribution[i].end*scale_vec[j];
+                let by_batch = communicate_by_batch(tmp_range.len());
+                let count = by_batch.len();
+
+                let mut result_j  = Vec::new();
+                let mut result_j_left = result.as_mut_slice();
+                let mut local_start = 0;
+                if rank == i {
+                    for (k, range_k) in by_batch.iter().enumerate() {
+                        let (result_j_chunk, result_j_left_2) = result_j_left.split_at_mut(range_k.end-local_start);
+                        result_j.push(result_j_chunk);
+                        local_start = range_k.end;
+                        result_j_left = result_j_left_2;
+                    };
+                }
+                //println!("debug ij: {} {}, by_batch_len: {}", i, j, &by_batch.len());
+                mpi::request::multiple_scope(count*2, |scope, coll| {
+                    if rank == j {
+                        for ((k, loc_batch)) in by_batch.iter().enumerate() {
+                            let tmp_range_batch = (tmp_range.start + loc_batch.start)..(tmp_range.start + loc_batch.start + loc_batch.len());
+                            let sreq = world
+                                .process_at_rank(i as i32)
+                                .immediate_send(scope, &data[tmp_range_batch]);
+                            coll.add(sreq);
+                        }
+                    }
+                    if rank == i {
+                        for ((k, loc_batch), result_jk) in zip(by_batch.iter().enumerate(), result_j) {
+                            let rreq = world
+                                .process_at_rank(j as i32)
+                                .immediate_receive_into(scope, result_jk);
+                            coll.add(rreq);
+                        }
+                    };
+                    while coll.incomplete() > 0 {
+                        coll.test_any();
+                    }
+                });
+
+                if rank == i  {
+                    let (baspar, sbsh, ebsh) = &baspar_distribution[j];
+                    outdata.iter_submatrix_mut(baspar.clone(), 0..auxbas_distribution[i].len())
+                    .zip(result.iter()).for_each(|(to, from)| {*to = *from});
+                }
+            }
+        }
+    }
+
+    //result
 }
