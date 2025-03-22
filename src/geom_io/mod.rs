@@ -666,6 +666,7 @@ impl GeomCell {
             //write!(input, "{:3}{:16.8}{:16.8}{:16.8}\n", elem, pos[0]*ang,pos[1]*ang,pos[2]*ang);
             input = format!("{}{:3}{:16.8}{:16.8}{:16.8}\n", input, elem, pos[0]*ang,pos[1]*ang,pos[2]*ang);
         });
+        input.pop();
         input
     }
     
@@ -766,6 +767,7 @@ pub fn calc_nuc_energy_with_point_charges(geom: &GeomCell, basis4elem: &Vec<Basi
     };
     nuc_energy
 }
+
 
 #[test]
 fn test_string_parse_1() {

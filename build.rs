@@ -86,7 +86,7 @@ fn generate_libxc_names_and_values() {
     } else {"".to_string()};
 
     // Define the output directory and destination path for the generated libxc code
-    let out_dir = format!("{}/rest/src/dft/libxc", &rest_dir);
+    let _out_dir = format!("{}/rest/src/dft/libxc", &rest_dir);
     let dest_path = format!("{}/rest/src/dft/libxc/names_and_values.rs", &rest_dir);
     let libxc_full_path = format!("{}/rest/src/dft/libxc/libxc_full.rs", &rest_dir);
 

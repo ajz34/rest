@@ -4,7 +4,7 @@ use serde::{Deserialize,Serialize};
 use tensors::MatrixFull;
 //use std::{fs, str::pattern::StrSearcher};
 use std::{fs, sync::Arc};
-use crate::{check_norm::force_state_occupation::ForceStateOccupation, dft::{DFAFamily, DFA4REST}, geom_io::{GeomCell, GeomUnit, MOrC}, utilities};
+use crate::{check_norm::force_state_occupation::ForceStateOccupation, dft::{DFAFamily, DFTType, DFA4REST}, geom_io::{GeomCell, GeomUnit, MOrC}, utilities};
 use rayon::ThreadPoolBuilder;
 use crate::check_norm::OCCType;
 
@@ -84,6 +84,15 @@ pub struct InputKeywords {
     pub use_ri_symm: bool,
     #[pyo3(get, set)]
     pub xc: String,
+    pub xc_type: DFTType,
+    // == for the non_standard setting of DFA ==
+    pub xc_namelist: Option<Vec<String>>,
+    pub xc_paralist: Option<Vec<f64>>,
+    pub dfa_hybrid_scf: Option<f64>,
+    // =========================================
+    // == for the non_standard setting of DFA ==
+    pub xc_model: Option<String>,
+    // =========================================
     pub post_xc: Vec<String>,
     pub post_correlation: Vec<DFAFamily>,
     pub post_ai_correction: String,
@@ -227,6 +236,11 @@ impl InputKeywords {
             isdf_new: false,
             // Keywords associated with the method employed
             xc: String::from("x3lyp"),
+            xc_type: DFTType::Standard,
+            xc_namelist: None,
+            xc_paralist: None,
+            dfa_hybrid_scf: None,
+            xc_model: None,
             empirical_dispersion: None,
             post_xc: vec![],
             post_correlation: vec![],
@@ -527,7 +541,68 @@ impl InputKeywords {
                     serde_json::Value::String(tmp_xc) => {tmp_xc.to_lowercase()},
                     other => {String::from("hf")},
                 };
-                //if tmp_input.print_level>0 {println!("The exchange-correlation method: {}", tmp_input.xc)};
+                tmp_input.xc_type = match tmp_ctrl.get("xc_type").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_xc) => {
+                        if tmp_xc.to_lowercase().eq("nonstandard") || tmp_xc.to_lowercase().eq("non-standard") {
+                            DFTType::NonStandard
+                        } else if tmp_xc.to_lowercase().eq("deep-learning")  
+                               || tmp_xc.to_lowercase().eq("deep_learning") 
+                               || tmp_xc.to_lowercase().eq("deep learning") 
+                               || tmp_xc.to_lowercase().eq("machine learning") 
+                               || tmp_xc.to_lowercase().eq("machine-learning") 
+                               || tmp_xc.to_lowercase().eq("machine_learning") 
+                        {
+                            DFTType::Standard
+                        } else if tmp_xc.to_lowercase().eq("standard")  {
+                            DFTType::Standard
+                        } else {
+                            println!("Unknown xc_type: ({}). xc_type is set to `standard`", tmp_xc);
+                            DFTType::Standard
+                        }
+                    },
+                    other => {
+                        DFTType::Standard
+                    },
+                };
+                tmp_input.xc_namelist = match tmp_ctrl.get("xc_namelist").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_op) => {Some(vec![tmp_op.to_lowercase()])},
+                    serde_json::Value::Array(tmp_op) => {
+                        let mut tmp_vec:Vec<String> = vec![];
+                        tmp_op.iter().for_each(|x| {
+                            let op_type = x.to_string();
+                            let string_len = op_type.len();
+                            tmp_vec.push(op_type[1..string_len-1].to_lowercase().to_string())
+                        });
+                        Some(tmp_vec)
+                    },
+                    other => {None},
+                };
+                tmp_input.xc_paralist = match tmp_ctrl.get("xc_paralist").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Array(tmp_op) => {
+                        let tmp_vec:Vec<f64> = tmp_op.iter().map(|x| {
+                            match x {
+                                serde_json::Value::String(tmp_str) => {tmp_str.parse().unwrap_or(0.0)},
+                                serde_json::Value::Number(tmp_num) => {tmp_num.as_f64().unwrap_or(0.0)},
+                                other => {0.0},
+                            }
+                        }).collect::<Vec<f64>>();
+                        Some(tmp_vec)
+                    },
+                    other => {None},
+                };
+                tmp_input.dfa_hybrid_scf = match tmp_ctrl.get("xc_hybrid_para").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_str) => {Some(tmp_str.parse().unwrap_or(0.0))},
+                    serde_json::Value::Number(tmp_num) => {Some(tmp_num.as_f64().unwrap_or(0.0))},
+                    other => {None}
+                };
+                tmp_input.xc_model = match tmp_ctrl.get("xc_model").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_xc) => {
+                        tmp_input.xc_type=DFTType::DeepLearning; 
+                        Some(tmp_xc.to_lowercase())
+                    },
+                    other => {None},
+                };
+
                 tmp_input.empirical_dispersion = match tmp_ctrl.get("empirical_dispersion").unwrap_or(&serde_json::Value::Null) {
                     serde_json::Value::String(tmp_emp) => {Some(tmp_emp.to_lowercase())},
                     other => {None},
@@ -992,49 +1067,6 @@ impl InputKeywords {
                     other => {false},
                 };
 
-                ////============================================================
-                //// Now print out some useful information
-                ////============================================================
-                //if tmp_input.print_level>0 {
-                //    println!("Charge: {:3}; Spin: {:3}",tmp_input.charge,tmp_input.spin);
-                //    println!("min_num_angular_points: {}", tmp_input.min_num_angular_points);
-                //    println!("max_num_angular_points: {}", tmp_input.max_num_angular_points);
-                //    println!("hardness: {}", tmp_input.hardness);
-                //    println!("Grid generation level: {}", tmp_input.grid_gen_level);
-                //    println!("Even tempered basis generation: {}", tmp_input.even_tempered_basis);
-                //    println!("SCF convergency thresholds: {:e} for density matrix", tmp_input.scf_acc_rho);
-                //    println!("                            {:e} Ha. for sum of eigenvalues", tmp_input.scf_acc_eev);
-                //    println!("                            {:e} Ha. for total energy", tmp_input.scf_acc_etot);
-                //    println!("Max. SCF cycle number:      {}", tmp_input.max_scf_cycle);
-                //    let tmp_mixer = tmp_input.mixer.clone();
-                //    if tmp_mixer.eq(&"direct") {
-                //        println!("No charge density mixing is employed for the SCF procedure");
-                //    } else if tmp_mixer.eq(&"linear") {
-                //        println!("The {} mixing is employed with the mixing parameter of {} for the SCF procedure", 
-                //                  &tmp_mixer, &tmp_input.mix_param);
-                //    } else if tmp_mixer.eq(&"ddiis") 
-                //           || tmp_mixer.eq(&"diis") {
-                //        println!("The {} mixing with (param, max_vec_len) = ({}, {}) is employed for the SCF procedure", 
-                //                  &tmp_mixer, &tmp_input.mix_param, &tmp_input.num_max_diis);
-                //        println!("Turn on the {} mixing after {} step(s) of SCF iteractions with the linear mixing", 
-                //                  &tmp_mixer, &tmp_input.start_diis_cycle);
-                //    } else {
-                //        tmp_input.mixer = String::from("direct");
-                //        println!("Unknown charge density mixer ({})! No charge density mixing will be invoked.", tmp_input.mixer);
-                //    };
-                //    // if guessfile is specified, reading the external initial guess file is prior to reading the restart file
-                //    if tmp_input.restart && ! std::path::Path::new(&tmp_input.chkfile).exists() {
-                //        println!("The specified checkfile is missing, which will be created after the SCF procedure \n({})",&tmp_input.chkfile)
-                //    } else if tmp_input.restart && ! tmp_input.external_init_guess {
-                //        println!("The initial guess will be obtained from the existing checkfile \n({})",&tmp_input.chkfile)
-                //    } else {
-                //        println!("The specified checkfile exists but is not loaded because the keyword 'external_init_guess' is specified");
-                //        println!("It will be updated after the SCF procedure \n({})",&tmp_input.chkfile)
-                //        //println!("No existing checkfile for restart\n")
-                //    };
-                //    println!("Initial guess is prepared by ({}).", &tmp_input.initial_guess);
-                //}
-
                 //===========================================================
                 // Global check of ctrl keywords and futher modification
                 //============================================================
@@ -1199,10 +1231,9 @@ fn iter_inputkeywords()  {
     let dd = InputKeywords::init_ctrl();
     let ff = toml::to_string(&dd).unwrap();
     println!("{}", ff);
-
 }
 
-pub fn overall_report_on_ctrl_geom(ctrl: &InputKeywords, geom: &GeomCell) {
+pub fn overall_parse_and_report_on_ctrl_geom(ctrl: &mut InputKeywords, geom: &mut GeomCell) {
     println!("=========================================================");
     println!("Input parameters for the REST calculation");
     println!("=========================================================");
@@ -1218,8 +1249,31 @@ pub fn overall_report_on_ctrl_geom(ctrl: &InputKeywords, geom: &GeomCell) {
         JobType::SinglePoint => {println!("Calculation type: Single-point energy")},
         JobType::GeomOpt => {println!("Calculation type: Geometry optimization")},
     }
-    println!("The exchange-correlation method: {}", ctrl.xc);
-
+    if ctrl.xc.eq("dl_dft") {
+        ctrl.xc_type = DFTType::DeepLearning
+    };
+    match ctrl.xc_type {
+        DFTType::Standard => {
+            println!("The exchange-correlation method: {}", ctrl.xc);
+        },
+        DFTType::NonStandard => {
+            if let (Some(xc_namelist), Some(xc_paralist), Some(dfa_hybrid_scf)) = (&ctrl.xc_namelist, &ctrl.xc_paralist, &ctrl.dfa_hybrid_scf) {
+                println!("Nonstandard exchange-correlation method with {:16.8} exact exchange is employed:", dfa_hybrid_scf);
+                xc_namelist.iter().zip(xc_paralist.iter()).for_each(|(xc_name, xc_para)| {
+                    println!("    Component: {:>20}, parameter: {:16.8}", xc_name, xc_para);
+                });
+            } else {
+                panic!("Error:: xc_namelist, xc_paralist and xc_hybrid_para should be specified for nonstandard xc method")
+            }
+        },
+        DFTType::DeepLearning => {
+            if let Some(xc_model) = &ctrl.xc_model {
+                println!("Deep-learning exchange-correlation model is employed");
+            } else {
+                panic!("Error:: xc_model should be specified for deep-learning xc methods")
+            }
+        },
+    };
     println!("Print level:                {}", ctrl.print_level);
     if let Some(num_threads) = ctrl.num_threads {
         println!("The number of threads used for parallelism:      {}", num_threads);
@@ -1227,79 +1281,85 @@ pub fn overall_report_on_ctrl_geom(ctrl: &InputKeywords, geom: &GeomCell) {
         println!("The number of threads used for parallelism:      {}", rayon::current_num_threads());
     }
     println!("The {}-GTO basis set is taken from {}", ctrl.basis_type,ctrl.basis_path);
-
-    println!("The pruning method is {}", ctrl.pruning);
-
-    println!("The radial grid generation method is {}", ctrl.rad_grid_method);
-    println!("ERI Type: {}", ctrl.eri_type);
-
-    if ctrl.use_ri_symm {
-        println!("Turn on the basis pair symmetry for RI 3D-tensors")
-    } else {
-        println!("Turn off the basis pair symmetry for RI 3D-tensors")
-    };
     if ctrl.use_auxbas {
         println!("The {}-GTO auxiliary basis set is taken from {}", ctrl.auxbas_type,ctrl.auxbas_path)
     };
-
+    if ctrl.even_tempered_basis {
+        println!("Even tempered basis generation starts at: {}", ctrl.etb_start_atom_number);
+    }
+    println!("Charge: {:3}; Spin: {:3}",ctrl.charge,ctrl.spin);
     if ctrl.spin_channel == 1 {
         println!("Spin polarization: Off")
     } else if ctrl.spin_channel == 2 {
         println!("Spin polarization: On")
     };
 
-    println!("Charge: {:3}; Spin: {:3}",ctrl.charge,ctrl.spin);
-    println!("min_num_angular_points: {}", ctrl.min_num_angular_points);
-    println!("max_num_angular_points: {}", ctrl.max_num_angular_points);
-    println!("hardness: {}", ctrl.hardness);
-    println!("Grid generation level: {}", ctrl.grid_gen_level);
-    println!("Even tempered basis generation: {}", ctrl.even_tempered_basis);
-    println!("SCF convergency thresholds: {:e} for density matrix", ctrl.scf_acc_rho);
-    println!("                            {:e} Ha. for sum of eigenvalues", ctrl.scf_acc_eev);
-    println!("                            {:e} Ha. for total energy", ctrl.scf_acc_etot);
-    println!("Max. SCF cycle number:      {}", ctrl.max_scf_cycle);
-    let tmp_mixer = ctrl.mixer.clone();
-    if tmp_mixer.eq(&"direct") {
-        println!("No charge density mixing is employed for the SCF procedure");
-    } else if tmp_mixer.eq(&"linear") {
-        println!("The {} mixing is employed with the mixing parameter of {} for the SCF procedure", 
-                  &tmp_mixer, &ctrl.mix_param);
-    } else if tmp_mixer.eq(&"ddiis") 
-           || tmp_mixer.eq(&"diis") {
-        println!("The {} mixing with (param, max_vec_len) = ({}, {}) is employed for the SCF procedure", 
-                  &tmp_mixer, &ctrl.mix_param, &ctrl.num_max_diis);
-        println!("Turn on the {} mixing after {} step(s) of SCF iteractions with the linear mixing", 
-                  &tmp_mixer, &ctrl.start_diis_cycle);
-    } else {
-        //ctrl.mixer = String::from("direct");
-        panic!("Unknown charge density mixer ({})! No charge density mixing will be invoked.", ctrl.mixer);
-    };
-    // if guessfile is specified, reading the external initial guess file is prior to reading the restart file
-    if ctrl.restart && ! std::path::Path::new(&ctrl.chkfile).exists() {
-        println!("The specified checkfile is missing, which will be created after the SCF procedure \n({})",&ctrl.chkfile)
-    } else if ctrl.restart && ! ctrl.external_init_guess {
-        println!("The initial guess will be obtained from the existing checkfile \n({})",&ctrl.chkfile)
-    } else {
-        println!("The specified checkfile exists but is not loaded because the keyword 'external_init_guess' is specified");
-        println!("It will be updated after the SCF procedure \n({})",&ctrl.chkfile)
-        //println!("No existing checkfile for restart\n")
-    };
-    println!("Initial guess is prepared by ({}).", &ctrl.initial_guess);
+    println!("Input molecular structure (in Angstrom): ----------");
+    println!("{}", geom.formated_geometry());
+    println!("End of molecular structure ------------------------");
 
-    if ctrl.external_init_guess {
-        println!("The initial guess is obtained from the specified file \n({})", &ctrl.guessfile);
+    if ctrl.print_level>0 {
+        println!("ERI Type: {}", ctrl.eri_type);
+        println!("SCF convergency thresholds: {:e} for density matrix", ctrl.scf_acc_rho);
+        println!("                            {:e} Ha. for sum of eigenvalues", ctrl.scf_acc_eev);
+        println!("                            {:e} Ha. for total energy", ctrl.scf_acc_etot);
+        println!("Max. SCF cycle number:      {}", ctrl.max_scf_cycle);
+        match geom.pbc {
+            MOrC::Molecule => println!("It is a finite cluster calculation"),
+            MOrC::Crystal => println!("It is a periodic calculation")
+        }
+        // if guessfile is specified, reading the external initial guess file is prior to reading the restart file
+        if ctrl.restart && ! std::path::Path::new(&ctrl.chkfile).exists() {
+            println!("The specified checkfile is missing, which will be created after the SCF procedure \n({})",&ctrl.chkfile)
+        } else if ctrl.restart && ! ctrl.external_init_guess {
+            println!("The initial guess will be obtained from the existing checkfile \n({})",&ctrl.chkfile)
+        } else {
+            println!("The specified checkfile exists but is not loaded because the keyword 'external_init_guess' is specified");
+            println!("It will be updated after the SCF procedure \n({})",&ctrl.chkfile)
+            //println!("No existing checkfile for restart\n")
+        };
+
+
     }
+    if ctrl.print_level>1 {
+        if ctrl.use_ri_symm {
+            println!("Turn on the basis pair symmetry for RI 3D-tensors")
+        } else {
+            println!("Turn off the basis pair symmetry for RI 3D-tensors")
+        };
+        println!("The pruning method is {}", ctrl.pruning);
+        println!("The radial grid generation method is {}", ctrl.rad_grid_method);
+        println!("min_num_angular_points: {}", ctrl.min_num_angular_points);
+        println!("max_num_angular_points: {}", ctrl.max_num_angular_points);
+        println!("hardness: {}", ctrl.hardness);
+        println!("Grid generation level: {}", ctrl.grid_gen_level);
+        println!("Even tempered basis generation: {}", ctrl.even_tempered_basis);
+        let tmp_mixer = ctrl.mixer.clone();
+        if tmp_mixer.eq(&"direct") {
+            println!("No charge density mixing is employed for the SCF procedure");
+        } else if tmp_mixer.eq(&"linear") {
+            println!("The {} mixing is employed with the mixing parameter of {} for the SCF procedure", 
+                      &tmp_mixer, &ctrl.mix_param);
+        } else if tmp_mixer.eq(&"ddiis") 
+               || tmp_mixer.eq(&"diis") {
+            println!("The {} mixing with (param, max_vec_len) = ({}, {}) is employed for the SCF procedure", 
+                      &tmp_mixer, &ctrl.mix_param, &ctrl.num_max_diis);
+            println!("Turn on the {} mixing after {} step(s) of SCF iteractions with the linear mixing", 
+                      &tmp_mixer, &ctrl.start_diis_cycle);
+        } else {
+            //ctrl.mixer = String::from("direct");
+            panic!("Unknown charge density mixer ({})! No charge density mixing will be invoked.", ctrl.mixer);
+        };
+        println!("Initial guess is prepared by ({}).", &ctrl.initial_guess);
 
-    if ctrl.even_tempered_basis {
-        println!("Even tempered basis generation starts at: {}", ctrl.etb_start_atom_number);
-        println!("Even tempered basis beta is: {}", ctrl.etb_beta);
+        if ctrl.external_init_guess {
+            println!("The initial guess is obtained from the specified file \n({})", &ctrl.guessfile);
+        }
+
+
     }
+    println!("=========================================================");
 
-
-    match geom.pbc {
-        MOrC::Molecule => println!("It is a finite cluster calculation"),
-        MOrC::Crystal => println!("It is a periodic calculation")
-    }
 
 
 }

@@ -147,20 +147,22 @@ pub fn initial_guess(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) {
         let original_flag = scf_data.mol.ctrl.use_dm_only;
         scf_data.mol.ctrl.use_dm_only = true;
 
-        //// ==== DEBUG IGOR ====
-        //if let Some(mpi_op) = &mpi_operator {
-        //    if mpi_op.rank == 0 {
-        //        scf_data.density_matrix[0].formated_output(5, "full");
-        //    }
+        //println!("======== IGOR debug for dfa components using SAD density matrix =======");
+        //let dfa = crate::dft::DFA4REST::new_xc(scf_data.mol.spin_channel, scf_data.mol.ctrl.print_level);
+        //let post_xc_energy = if let Some(grids) = &scf_data.grids {
+        //    dfa.post_xc_exc(&scf_data.mol.ctrl.post_xc, grids, &scf_data.density_matrix, &scf_data.eigenvectors, &scf_data.occupation)
         //} else {
-        //    scf_data.density_matrix[0].formated_output(5, "full");
-        //}
-        //// ==== DEBUG IGOR ====
+        //    vec![[0.0,0.0]]
+        //};
+        //post_xc_energy.iter().zip(scf_data.mol.ctrl.post_xc.iter()).for_each(|(energy, name)| {
+        //    println!("{:<16}: {:16.8} Ha", name, energy[0]+energy[1]);
+        //});
+        //println!("======= IGOR debug ========");
 
         scf_data.generate_hf_hamiltonian(mpi_operator);
         scf_data.mol.ctrl.use_dm_only = original_flag;
         //println!("{:?}",scf_data.);
-        if scf_data.mol.ctrl.print_level>0 {println!("Initial guess HF energy: {:24.16}", scf_data.scf_energy)};
+        if scf_data.mol.ctrl.print_level>0 {println!("Initial guess energy using single atom density (SAD): {:24.16}", scf_data.scf_energy)};
 
         scf_data.diagonalize_hamiltonian(mpi_operator);
         scf_data.generate_occupation();

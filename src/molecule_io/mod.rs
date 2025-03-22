@@ -23,10 +23,10 @@ use std::path::Path;
 use regex::Regex;
 use crate::basis_io::etb::{get_etb_elem, etb_gen_for_atom_list, InfoV2};
 use crate::constants::{ATM_NUC, ATM_NUC_MOD_OF, AUXBAS_THRESHOLD, ELEM1ST, ELEM2ND, ELEM3RD, ELEM4TH, ELEM5TH, ELEM6TH, ELEMTMS, ENV_PRT_START, NUC_ECP, NUC_FRAC_CHARGE, NUC_STAD_CHARGE};
-use crate::dft::DFA4REST;
+use crate::dft::{DFTType, DFA4REST};
 use crate::geom_io::{GeomCell,MOrC, GeomUnit, get_mass_charge};
 use crate::basis_io::{ecp, BasInfo, Basis4Elem};
-use crate::ctrl_io::{overall_report_on_ctrl_geom, InputKeywords};
+use crate::ctrl_io::{overall_parse_and_report_on_ctrl_geom, InputKeywords};
 use crate::mpi_io::{mpi_isend_irecv_wrt_distribution, mpi_isend_irecv_wrt_distribution_v02, mpi_isend_irecv_wrt_distribution_v03, MPIData, MPIOperator};
 use crate::utilities;
 use crate::basis_io::bse_downloader::{self, ctrl_element_checker, local_element_checker};
@@ -175,7 +175,7 @@ impl Molecule {
         if let Some(local_mpi_data) = &mpi_data {
             if local_mpi_data.rank != 0 {ctrl.print_level = 0};
         };
-        if ctrl.print_level > 0 {overall_report_on_ctrl_geom(&ctrl, &geom)};
+        overall_parse_and_report_on_ctrl_geom(&mut ctrl, &mut geom);
         Molecule::build_native(ctrl, geom, mpi_data)
     }
 
@@ -220,7 +220,11 @@ impl Molecule {
 
         //let basis4elem = bas;
 
-        let xc_data = DFA4REST::new(&ctrl.xc,spin_channel, ctrl.print_level);
+        let xc_data = match &ctrl.xc_type {
+            DFTType::Standard => {DFA4REST::new(&ctrl.xc, spin_channel, ctrl.print_level)},
+            DFTType::NonStandard => {DFA4REST::new_nonstandard(spin_channel, ctrl.print_level, &ctrl.xc_namelist, &ctrl.xc_paralist, &ctrl.dfa_hybrid_scf)},
+            DFTType::DeepLearning => {DFA4REST::new_deep_learning(spin_channel, ctrl.print_level, &ctrl.xc_model)}
+        };
 
         let use_eri = xc_data.use_eri() || ctrl.use_ri_vj;
         

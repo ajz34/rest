@@ -96,7 +96,7 @@ pub fn numerical_force(scf_data: &SCF, displace: f64, mpi_operator: &Option<MPIO
                 io::stdout().flush().unwrap();
             }
         } else {
-            print!("|");
+            print!("|\n");
             io::stdout().flush().unwrap();
         }
     }

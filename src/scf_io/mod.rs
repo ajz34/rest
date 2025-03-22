@@ -2,7 +2,7 @@ use crate::basis_io::ecp::ghost_effective_potential_matrix;
 use crate::check_norm::force_state_occupation::adapt_occupation_with_force_projection;
 use crate::check_norm::{self, generate_occupation_frac_occ, generate_occupation_integer, generate_occupation_sad, OCCType};
 use crate::dft::gen_grids::prune::prune_by_rho;
-use crate::dft::{numerical_density, Grids};
+use crate::dft::{numerical_density, DFTType, Grids};
 use crate::geom_io::{calc_nuc_energy, calc_nuc_energy_with_point_charges};
 use crate::mpi_io::{mpi_broadcast, mpi_broadcast_matrixfull, mpi_broadcast_vector, mpi_reduce, MPIOperator};
 use crate::utilities::{create_pool, TimeRecords};
@@ -1399,7 +1399,7 @@ impl SCF {
         vk
     }
 
-    pub fn generate_vk_with_isdf_new(&mut self, scaling_factor: f64) -> Vec<MatrixUpper<f64>>{
+    pub fn generate_vk_with_isdf_new(&self, scaling_factor: f64) -> Vec<MatrixUpper<f64>>{
         let num_basis = self.mol.num_basis;
         let num_state = self.mol.num_state;
         //let npair = num_basis*(num_basis+1)/2;
@@ -1784,15 +1784,6 @@ impl SCF {
                         *h_ij += vk_ij
                     });
             };
-            //// ==== DEBUG IGOR ====
-            //if let Some(mpi_op) = &mpi_operator {
-            //    if mpi_op.rank == 0 {
-            //        vk[0].formated_output(5, "full");
-            //    }
-            //} else {
-            //    vk[0].formated_output(5, "full");
-            //}
-            //// ==== DEBUG IGOR ====
         }
         let dt3 = time::Local::now();
         if self.mol.xc_data.dfa_compnt_scf.len()!=0 {
@@ -1818,7 +1809,7 @@ impl SCF {
                 let dm_upper = dm_s.to_matrixupper();
                 vxc_total += SCF::par_energy_contraction(&dm_upper, &vxc[i_spin]);
             }
-        }
+        };
 
         let dt4 = time::Local::now();
         
@@ -2017,6 +2008,11 @@ impl SCF {
         //        }
         //    };
         //}
+        //println!("==== IGOR debug for Exc[HF]====");
+        //let exc_hf = self.evaluate_exact_exchange_ri_v(mpi_operator);
+        //println!("Exc[HF] = {:16.8}", exc_hf);
+        //println!("==== IGOR debug for Exc[HF]====");
+
         if self.mol.ctrl.print_level>1 {
             println!("Exc: {:16.8}, Vxc: {:16.8}", exc_total, vxc_total)
         };
@@ -2050,6 +2046,63 @@ impl SCF {
 
             },
         }
+
+        // For the Deep-Learning DFA (DL-DFA) developed by ShenBi  -- Coded by IGOR/ 2025/3/22
+        // 1) evaluate the energy_components with respect to the current xc_data.dfa_paramr_scf
+        let energy_components = self.evaluate_energy_components(mpi_operator);
+        // 2) evaluate the DL-DFA total energy
+        let exc_dldfa = crate::dft::deep_learning::dl_hybrid_xc_energy(&energy_components);
+        // 3) update the DL-DFA xc potential 
+        let next_dfa_paramr_scf = crate::dft::deep_learning::dl_hybrid_xc_param(&energy_components);
+        self.mol.xc_data.dfa_hybrid_scf = next_dfa_paramr_scf[1];
+        self.mol.xc_data.dfa_paramr_scf = next_dfa_paramr_scf[2..].to_vec();
+         
+    }
+
+    pub fn evaluate_energy_components(&self, mpi_operator: &Option<MPIOperator>) -> Vec<f64> {
+        /// 1. the ordering is given by E_noXC, Ex_HF, and a sequence of DFA components in self.xc_data.dfa_compnt_scf
+        /// 2. this function should be invoked after generate_hf_hamiltonian()
+        let exc_hf = if self.mol.ctrl.eri_type.eq("ri_v") {
+            self.evaluate_exact_exchange_ri_v(mpi_operator)
+        } else {
+            panic!("Only RI_V version has been implemented for SCF::evaluate_energy_components")
+        };
+        //println!("Exc[HF] = {:16.8}", exc_hf);
+        let current_dfa = &self.mol.xc_data;
+        let xc_energy_list = if let Some(grids) = &self.grids {
+            let xc_code_list = &current_dfa.dfa_compnt_scf;
+            self.mol.xc_data.xc_exc_list(
+                xc_code_list, 
+                grids, 
+                &self.density_matrix, 
+                &self.eigenvectors, 
+                &self.occupation
+            )
+        } else {
+            let code_list = &self.mol.xc_data.dfa_compnt_scf;
+            vec![[0.0,0.0];code_list.len()]
+        };
+
+        let mut xc_energy_list: Vec<f64> = xc_energy_list.iter().map(|energy| energy[0]+energy[1]).collect();
+
+        if let Some(mpi_world) = mpi_operator {
+            let mut tot_xc_list = mpi_reduce(&mpi_world.world, &xc_energy_list, 0, &SystemOperation::sum());
+            mpi_broadcast(&mpi_world.world, &mut tot_xc_list, 0);
+            xc_energy_list = tot_xc_list;
+        }
+
+        let mut exc_total = exc_hf * current_dfa.dfa_hybrid_scf;
+        xc_energy_list.iter().zip(current_dfa.dfa_paramr_scf.iter()).for_each(|(xc_energy, &param)| {
+            exc_total += xc_energy * param
+        });
+
+        let e_noxc = self.scf_energy - exc_total;
+        //let mut energy_components = vec![self.scf_energy-exc_hf];
+
+        xc_energy_list.insert(0, exc_hf);
+        xc_energy_list.insert(0, e_noxc);
+
+        xc_energy_list
     }
 
     /// about total energy contraction:
@@ -2072,7 +2125,7 @@ impl SCF {
         (tmp_energy - double_count) * 0.5
     }
 
-    pub fn evaluate_exact_exchange_ri_v(&mut self, mpi_operator: &Option<MPIOperator>) -> f64 {
+    pub fn evaluate_exact_exchange_ri_v(&self, mpi_operator: &Option<MPIOperator>) -> f64 {
         let mut x_energy = 0.0;
         let use_dm_only = self.mol.ctrl.use_dm_only;
         //let mut vk = self.generate_vk_with_ri_v(1.0, use_dm_only);
@@ -2290,7 +2343,7 @@ impl SCF {
         vj_upper_with_ri_v(&self.ri3fn_isdf, dm, spin_channel, scaling_factor)
     }
 
-    pub fn generate_vk_with_ri_v(&mut self, scaling_factor: f64, use_dm_only: bool, mpi_operator: &Option<MPIOperator>) -> Vec<MatrixUpper<f64>> {
+    pub fn generate_vk_with_ri_v(&self, scaling_factor: f64, use_dm_only: bool, mpi_operator: &Option<MPIOperator>) -> Vec<MatrixUpper<f64>> {
         //let num_basis = self.mol.num_basis;
         //let num_state = self.mol.num_state;
         //let num_auxbas = self.mol.num_auxbas;
@@ -2300,23 +2353,23 @@ impl SCF {
         if self.mol.ctrl.use_ri_symm {
             if use_dm_only {
                 let dm = &self.density_matrix;
-                vk_upper_with_rimatr_use_dm_only_sync_mpi(&mut self.rimatr, dm, spin_channel, scaling_factor, mpi_operator)
+                vk_upper_with_rimatr_use_dm_only_sync_mpi(&self.rimatr, dm, spin_channel, scaling_factor, mpi_operator)
             } else {
                 let eigv = &self.eigenvectors;
                 let occupation = &self.occupation;
                 let num_elec = &self.mol.num_elec;
                 //vk_upper_with_rimatr_sync(&mut self.rimatr, eigv, num_elec, occupation, spin_channel, scaling_factor)
-                vk_upper_with_rimatr_sync_mpi(&mut self.rimatr, eigv, num_elec, occupation, spin_channel, scaling_factor,mpi_operator)
+                vk_upper_with_rimatr_sync_mpi(&self.rimatr, eigv, num_elec, occupation, spin_channel, scaling_factor,mpi_operator)
             }
         } else if self.mol.ctrl.isdf_new{
             self.generate_vk_with_isdf_new(scaling_factor)
         }else{
             if use_dm_only {
                 let dm = &self.density_matrix;
-                vk_upper_with_ri_v_use_dm_only_sync(&mut self.ri3fn, dm, spin_channel, scaling_factor)
+                vk_upper_with_ri_v_use_dm_only_sync(&self.ri3fn, dm, spin_channel, scaling_factor)
             } else {
                 let eigv = &self.eigenvectors;
-                vk_upper_with_ri_v_sync(&mut self.ri3fn, eigv, &self.mol.num_elec, &self.occupation, 
+                vk_upper_with_ri_v_sync(&self.ri3fn, eigv, &self.mol.num_elec, &self.occupation, 
                                         spin_channel, scaling_factor)
             }
         }
@@ -2325,7 +2378,7 @@ impl SCF {
 
     }
 
-    pub fn generate_vk_with_isdf(&mut self, scaling_factor: f64, use_dm_only: bool) -> Vec<MatrixUpper<f64>> {
+    pub fn generate_vk_with_isdf(&self, scaling_factor: f64, use_dm_only: bool) -> Vec<MatrixUpper<f64>> {
         //let num_basis = self.mol.num_basis;
         //let num_state = self.mol.num_state;
         //let num_auxbas = self.mol.num_auxbas;
@@ -2334,16 +2387,16 @@ impl SCF {
 
         if self.mol.ctrl.use_ri_symm {
             let dm = &self.density_matrix;
-            vk_upper_with_rimatr_use_dm_only_sync(&mut self.rimatr, dm, spin_channel, scaling_factor)
+            vk_upper_with_rimatr_use_dm_only_sync(&self.rimatr, dm, spin_channel, scaling_factor)
         } else {
             if use_dm_only {
                 //println!("use isdf to generate k");
                 let dm = &self.density_matrix;
                 //&dm[0].formated_output_e(5, "full");
-                vk_upper_with_ri_v_use_dm_only_sync(&mut self.ri3fn_isdf, dm, spin_channel, scaling_factor)
+                vk_upper_with_ri_v_use_dm_only_sync(&self.ri3fn_isdf, dm, spin_channel, scaling_factor)
             } else {
                 let eigv = &self.eigenvectors;
-                vk_upper_with_ri_v_sync(&mut self.ri3fn_isdf, eigv, &self.mol.num_elec, &self.occupation, 
+                vk_upper_with_ri_v_sync(&self.ri3fn_isdf, eigv, &self.mol.num_elec, &self.occupation, 
                                         spin_channel, scaling_factor)
             }
         }
@@ -3537,7 +3590,7 @@ pub fn vk_upper_with_rimatr_sync_v03(
 
 //==========================need to be checked=============================
 pub fn vk_upper_with_ri_v_sync(
-                ri3fn: &mut Option<RIFull<f64>>,
+                ri3fn: &Option<RIFull<f64>>,
                 eigv: &[MatrixFull<f64>;2], 
                 num_elec: &[f64;3], occupation: &[Vec<f64>;2],
                 spin_channel: usize, scaling_factor: f64)  -> Vec<MatrixUpper<f64>> {
@@ -3567,7 +3620,7 @@ pub fn vk_upper_with_ri_v_sync(
                 let occ_s = &occupation[i_spin][0..nw];
                 //let mut tmp_b = MatrixFull::new([num_basis,num_basis],0.0_f64);
                 let (sender, receiver) = channel();
-                ri3fn.par_iter_mut_auxbas(0..num_auxbas).unwrap().for_each_with(sender, |s, m| {
+                ri3fn.par_iter_auxbas(0..num_auxbas).unwrap().for_each_with(sender, |s, m| {
 
                     let mut reduced_ri3fn = MatrixFullSlice {
                         size:  &[num_basis,num_basis], 
@@ -4357,6 +4410,17 @@ pub fn initialize_scf(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) {
         println!("Initial density matrix by Atom SAD:");
         scf_data.density_matrix[0].formated_output(5, "full");
     }
+    //println!("======== IGOR debug  for xc components after Initial Guess =======");
+    //let dfa = crate::dft::DFA4REST::new_xc(scf_data.mol.spin_channel, scf_data.mol.ctrl.print_level);
+    //let post_xc_energy = if let Some(grids) = &scf_data.grids {
+    //    dfa.post_xc_exc(&scf_data.mol.ctrl.post_xc, grids, &scf_data.density_matrix, &scf_data.eigenvectors, &scf_data.occupation)
+    //} else {
+    //    vec![[0.0,0.0]]
+    //};
+    //post_xc_energy.iter().zip(scf_data.mol.ctrl.post_xc.iter()).for_each(|(energy, name)| {
+    //    println!("{:<16}: {:16.8} Ha", name, energy[0]+energy[1]);
+    //});
+    //println!("======= IGOR debug ========");
     time_mark.count("InitGuess");
 
     time_mark.count("Overall");
@@ -4383,6 +4447,18 @@ pub fn scf_without_build(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>)
     scf_data.generate_occupation();
     scf_data.generate_density_matrix();
     scf_records.update(&scf_data);
+
+    //println!("======== IGOR debug for xc components =======");
+    //let dfa = crate::dft::DFA4REST::new_xc(scf_data.mol.spin_channel, scf_data.mol.ctrl.print_level);
+    //let post_xc_energy = if let Some(grids) = &scf_data.grids {
+    //    dfa.post_xc_exc(&scf_data.mol.ctrl.post_xc, grids, &scf_data.density_matrix, &scf_data.eigenvectors, &scf_data.occupation)
+    //} else {
+    //    vec![[0.0,0.0]]
+    //};
+    //post_xc_energy.iter().zip(scf_data.mol.ctrl.post_xc.iter()).for_each(|(energy, name)| {
+    //    println!("{:<16}: {:16.8} Ha", name, energy[0]+energy[1]);
+    //});
+    //println!("======= IGOR debug for xc components ========");
 
     let mut scf_converge = [false;2];
     while ! (scf_converge[0] || scf_converge[1]) {

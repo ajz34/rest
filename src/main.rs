@@ -112,9 +112,11 @@ use crate::mpi_io::{MPIOperator,MPIData};
 fn main() -> anyhow::Result<()> {
 
                                   
-    let mut time_mark = utilities::TimeRecords::new();
-    time_mark.new_item("Overall", "the whole job");
-    time_mark.count_start("Overall");
+    //let mut time_mark = utilities::TimeRecords::new();
+    //time_mark.new_item("Overall", "the whole job");
+    //time_mark.new_item("SCF", "the scf procedure");
+
+
 
 
     // VERY IMPORTANCE: introduce mpi_operator:
@@ -129,6 +131,8 @@ fn main() -> anyhow::Result<()> {
     if mol.ctrl.print_level>=2 {
         println!("{}", mol.ctrl.formated_output_in_toml());
     }
+    let mut time_mark = initialize_time_record(&mol);
+    time_mark.count_start("Overall");
 
     if mol.ctrl.deep_pot {
         //let mut scf_data = scf_io::SCF::build(&mut mol);
@@ -168,8 +172,9 @@ fn main() -> anyhow::Result<()> {
         return Ok(())
     }
 
+
+    // initialize the time record
     // initialize the SCF procedure
-    time_mark.new_item("SCF", "the scf procedure");
     time_mark.count_start("SCF");
     let mut scf_data = scf_io::SCF::build(mol,&mpi_operator);
     time_mark.count("SCF");
@@ -179,10 +184,6 @@ fn main() -> anyhow::Result<()> {
     let jobtype = scf_data.mol.ctrl.job_type.clone();
     match jobtype {
         JobType::GeomOpt => {
-            //let mut geom_time_mark = utilities::TimeRecords::new();
-            //geom_time_mark.new_item("geom_opt", "geometry optimization");
-            //geom_time_mark.count_start("geom_opt");
-            time_mark.new_item("geom_opt", "geometry optimization");
             time_mark.count_start("geom_opt");
             if scf_data.mol.ctrl.print_level>0 {
                 println!("Geometry optimization invoked");
@@ -370,19 +371,19 @@ pub fn performance_essential_calculations(scf_data: &mut SCF, time_mark: &mut ut
     if let Some(dft_method) = &scf_data.mol.xc_data.dfa_family_pos {
         match dft_method {
             dft::DFAFamily::PT2 | dft::DFAFamily::SBGE2 => {
-                time_mark.new_item("PT2", "the PT2 evaluation");
+                //time_mark.new_item("PT2", "the PT2 evaluation");
                 time_mark.count_start("PT2");
                 ri_pt2::xdh_calculations(scf_data, mpi_operator);
                 time_mark.count("PT2");
             },
             dft::DFAFamily::RPA => {
-                time_mark.new_item("RPA", "the RPA evaluation");
+                //time_mark.new_item("RPA", "the RPA evaluation");
                 time_mark.count_start("RPA");
                 ri_rpa::rpa_calculations(scf_data, mpi_operator);
                 time_mark.count("RPA");
             }
             dft::DFAFamily::SCSRPA => {
-                time_mark.new_item("SCS-RPA", "the SCS-RPA evaluation");
+                //time_mark.new_item("SCS-RPA", "the SCS-RPA evaluation");
                 time_mark.count_start("SCS-RPA");
                 ri_pt2::xdh_calculations(scf_data, mpi_operator);
                 time_mark.count("SCS-RPA");
@@ -418,5 +419,36 @@ pub fn collect_total_energy(scf_data: &SCF) -> f64 {
     };
 
     total_energy
+
+}
+
+
+fn initialize_time_record(mol: &Molecule) -> utilities::TimeRecords {
+    let mut time_mark = utilities::TimeRecords::new();
+    time_mark.new_item("Overall", "the whole job");
+    time_mark.new_item("SCF", "the scf procedure");
+    let jobtype = mol.ctrl.job_type.clone();
+    match jobtype {
+        JobType::GeomOpt => {
+            time_mark.new_item("geom_opt", "geometry optimization");
+        },
+        _ => {}
+    };
+    if let Some(dft_method) = &mol.xc_data.dfa_family_pos {
+        match dft_method {
+            dft::DFAFamily::PT2 | dft::DFAFamily::SBGE2 => {
+                time_mark.new_item("PT2", "the PT2 evaluation");
+            },
+            dft::DFAFamily::RPA => {
+                time_mark.new_item("RPA", "the RPA evaluation");
+            }
+            dft::DFAFamily::SCSRPA => {
+                time_mark.new_item("SCS-RPA", "the SCS-RPA evaluation");
+            }
+            _ => {}
+        }
+    }
+
+    time_mark
 
 }

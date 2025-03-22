@@ -1,5 +1,6 @@
 mod libxc;
 pub mod gen_grids;
+pub mod deep_learning;
 
 use mpi::collective::SystemOperation;
 use mpi::ffi::MPI_T_SCOPE_GROUP_EQ;
@@ -35,6 +36,16 @@ use serde::{Deserialize, Serialize};
 use libxc::{XcFuncType, LibXCFamily};
 //use std::intrinsics::expf64;
 use crate::dft::libxc::names_and_values::MAP as libxc_names_values;
+
+
+
+
+#[derive(Clone,Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DFTType {
+    Standard,
+    NonStandard,
+    DeepLearning
+}
 
 #[derive(Clone,Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DFAFamily {
@@ -115,6 +126,7 @@ impl DFA4REST {
         println!("Libxc version used in REST: {}.{}.{}", vmajor, vminor, vmicro);
     }
 
+
     pub fn new_xc(spin_channel: usize, print_level: usize) -> DFA4REST {
         DFA4REST { 
             spin_channel, 
@@ -128,7 +140,63 @@ impl DFA4REST {
             dfa_paramr_adv: None }
     }
 
+    pub fn new_nonstandard(spin_channel: usize, print_level: usize, 
+               xc_namelist:&Option<Vec<String>>, xc_paramlist:&Option<Vec<f64>>, dfa_hybrid_scf: &Option<f64>,
+            ) -> DFA4REST {
+        let mut dfa = if let (Some(codelist), Some(paramlist), Some(dfa_hybrid_scf)) = (&xc_namelist, &xc_paramlist, &dfa_hybrid_scf) {
+            DFA4REST::parse_scf_nonstd(codelist, paramlist, dfa_hybrid_scf, spin_channel)
+        } else {
+            panic!("xc_namelist, xc_paramlist and dfa_hybrid_scf should be provided for a non-standard setting of DFA")
+        };
+        dfa
+    }
+    pub fn new_deep_learning(spin_channel: usize, print_level: usize, xc_model:&Option<String>) -> DFA4REST {
+        let mut dfa = if let Some(xc_model) = xc_model {
+            DFA4REST::parse_scf_dldft(xc_model, spin_channel)
+        } else {
+            panic!("xc_model should be provided for deep-learning DFA model")
+        };
+        dfa
+    }
+
+    pub fn parse_scf_dldft(xc_model:&String, spin_channel: usize) -> DFA4REST {
+
+        let mut codelist: Vec<&str> = vec![];
+        let mut paralist: Vec<f64> = vec![];
+        let mut dfa_hybrid_scf: f64 = 0.0;
+        if xc_model.eq("dl_dfa_scf") {
+            // 毕升的机器学习杂化泛函，fake成b3lyp，但是初始为BLYP
+            codelist = vec!["lda_x_slater", "gga_x_b88", "lda_c_vwn_rpa", "gga_c_lyp"];
+            paralist = vec![0.00, 1.00, 0.00, 1.00];
+            dfa_hybrid_scf = 0.00001;
+        };
+
+        // Parse the xc functionals
+        let dfa_compnt_scf = codelist.iter().map(|xc| {
+            let xc_code = DFA4REST::libxc_code_fdqc(xc);
+            xc_code.iter().filter(|x| **x!=0).map(|x| *x).collect::<Vec<usize>>()
+        }).flatten().collect::<Vec<usize>>();
+        // Parse the xc parameters
+        let dfa_paramr_scf = codelist.iter().zip(paralist.iter()).map(|(xc, param)| {
+            let xc_code = DFA4REST::libxc_code_fdqc(xc);
+            xc_code.iter().filter(|x| **x!=0).map(|x| *param).collect::<Vec<f64>>()
+        }).flatten().collect::<Vec<f64>>();
+
+        DFA4REST {
+            spin_channel,
+            dfa_family_pos: None,
+            dfa_compnt_pos: None,
+            dfa_paramr_pos: None,
+            dfa_hybrid_pos: None,
+            dfa_paramr_adv: None,
+            dfa_compnt_scf,
+            dfa_paramr_scf,
+            dfa_hybrid_scf,
+        }
+    }
+
     pub fn new(name: &str, spin_channel: usize, print_level: usize) -> DFA4REST {
+        
         let tmp_name = name.to_lowercase();
         let post_dfa = DFA4REST::parse_postscf(&tmp_name, spin_channel);
         match post_dfa {
@@ -269,9 +337,24 @@ impl DFA4REST {
             dfa_hybrid_scf,
         }
     }
-    pub fn parse_scf_nonstd(codelist:Vec<usize>, paramlist:Vec<f64>, spin_channel: usize) -> DFA4REST {
+    pub fn parse_scf_nonstd(codelist:&Vec<String>, paramlist:&Vec<f64>, dfa_hybrid_scf: &f64, spin_channel: usize) -> DFA4REST {
         if codelist.len()!=paramlist.len() {panic!("codelist (len: {}) does not match paramlist (len: {})", codelist.len(), paramlist.len())}
-        let dfa_hybrid_scf = DFA4REST::get_hybrid_libxc(&codelist,spin_channel);
+        // Parse the xc functionals
+        let dfa_compnt_scf = codelist.iter().map(|xc| {
+            let xc_code = DFA4REST::libxc_code_fdqc(xc);
+            xc_code.iter().filter(|x| **x!=0).map(|x| *x).collect::<Vec<usize>>()
+        }).flatten().collect::<Vec<usize>>();
+        // Parse the xc parameters
+        let dfa_paramr_scf = codelist.iter().zip(paramlist.iter()).map(|(xc, param)| {
+            let xc_code = DFA4REST::libxc_code_fdqc(xc);
+            xc_code.iter().filter(|x| **x!=0).map(|x| *param).collect::<Vec<f64>>()
+        }).flatten().collect::<Vec<f64>>();
+
+        println!("==== IGOR debug for nonstd DFT parse ====");
+        println!("codelist: {:?}, xc_hybrid: {:16.8}", codelist, dfa_hybrid_scf);
+        println!("dfa_compnt_scf: {:?}", &dfa_compnt_scf);
+        println!("dfa_paramr_scf: {:?}", &dfa_paramr_scf);
+        println!("==== IGOR debug for nonstd DFT parse ====");
         DFA4REST {
             spin_channel,
             dfa_family_pos: None,
@@ -279,9 +362,9 @@ impl DFA4REST {
             dfa_paramr_pos: None,
             dfa_hybrid_pos: None,
             dfa_paramr_adv: None,
-            dfa_compnt_scf: codelist,
-            dfa_paramr_scf: paramlist,
-            dfa_hybrid_scf,
+            dfa_compnt_scf,
+            dfa_paramr_scf,
+            dfa_hybrid_scf: *dfa_hybrid_scf,
         }
     }
 
@@ -1285,6 +1368,7 @@ impl DFA4REST {
         let num_basis = dm[0].size[0];
         let dt0 = utilities::init_timing();
         let (rho,rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
+        //let (rho,rhop) = grids.prepare_tabulated_density(dm, spin_channel);
         let use_density_gradient = post_xc.iter().fold(false,|flag, x| {
             let code = DFA4REST::xc_func_init_fdqc(x,spin_channel);
             let x_flag = code.iter().fold(false, |flag, xc_code| {
@@ -1319,6 +1403,48 @@ impl DFA4REST {
         });
 
         post_xc_energy
+
+    }
+
+    pub fn xc_exc_list(&self, xc_code_list: &Vec<usize>, grids: &crate::dft::Grids, dm: &Vec<MatrixFull<f64>>, mo: &[MatrixFull<f64>;2], occ: &[Vec<f64>;2]) 
+    -> Vec<[f64;2]> {
+        let mut xc_energy:Vec<[f64;2]>=vec![];
+        let spin_channel = self.spin_channel;
+        let num_grids = grids.coordinates.len();
+        let num_basis = dm[0].size[0];
+        let dt0 = utilities::init_timing();
+        let (rho,rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
+        //let (rho,rhop) = grids.prepare_tabulated_density(dm, spin_channel);
+        let use_density_gradient = xc_code_list.iter().fold(false,|flag, xc_code| {
+            let xc_func = self.init_libxc(xc_code);
+            flag || xc_func.is_gga() || xc_func.is_hybrid_gga()
+        });
+        let sigma = if use_density_gradient {
+            prepare_tabulated_sigma_rayon(&rhop, spin_channel)
+        } else {
+            MatrixFull::empty()
+        };
+        xc_code_list.iter().for_each(|xc_code| {
+            //let mut exc = MatrixFull::new([num_grids,1],0.0);
+            let mut exc_total =[0.0,0.0];
+            //let code = DFA4REST::xc_func_init_fdqc(x,spin_channel);
+            //println!("debug xc_code: {:?}", &code);
+            //code.iter().for_each(|xc_code| {
+            let exc = self.xc_exc_code(xc_code, &rho, &sigma, spin_channel);
+            //});
+
+            for i_spin in 0..spin_channel {
+                exc_total[i_spin] = izip!(exc.data.iter(),rho.iter_column(i_spin),grids.weights.iter())
+                    .fold(0.0,|acc,(exc,rho,weight)| {
+                        acc + exc * rho * weight
+                    });
+            };
+            //println!("exc_total: {:?}", &exc_total);
+
+            xc_energy.push(exc_total);
+        });
+
+        xc_energy
 
     }
 
