@@ -552,7 +552,7 @@ impl InputKeywords {
                                || tmp_xc.to_lowercase().eq("machine-learning") 
                                || tmp_xc.to_lowercase().eq("machine_learning") 
                         {
-                            DFTType::Standard
+                            DFTType::DeepLearning
                         } else if tmp_xc.to_lowercase().eq("standard")  {
                             DFTType::Standard
                         } else {

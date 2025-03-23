@@ -2047,15 +2047,20 @@ impl SCF {
             },
         }
 
-        // For the Deep-Learning DFA (DL-DFA) developed by ShenBi  -- Coded by IGOR/ 2025/3/22
-        // 1) evaluate the energy_components with respect to the current xc_data.dfa_paramr_scf
-        let energy_components = self.evaluate_energy_components(mpi_operator);
-        // 2) evaluate the DL-DFA total energy
-        let exc_dldfa = crate::dft::deep_learning::dl_hybrid_xc_energy(&energy_components);
-        // 3) update the DL-DFA xc potential 
-        let next_dfa_paramr_scf = crate::dft::deep_learning::dl_hybrid_xc_param(&energy_components);
-        self.mol.xc_data.dfa_hybrid_scf = next_dfa_paramr_scf[1];
-        self.mol.xc_data.dfa_paramr_scf = next_dfa_paramr_scf[2..].to_vec();
+        match self.mol.ctrl.xc_type {
+            DFTType::DeepLearning => {
+                // For the Deep-Learning DFA (DL-DFA) developed by ShenBi  -- Coded by IGOR/ 2025/3/22
+                // 1) evaluate the energy_components with respect to the current xc_data.dfa_paramr_scf
+                let energy_components = self.evaluate_energy_components(mpi_operator);
+                // 2) evaluate the DL-DFA total energy
+                let exc_dldfa = crate::dft::deep_learning::dl_hybrid_xc_energy(&energy_components);
+                // 3) update the DL-DFA xc potential 
+                let next_dfa_paramr_scf = crate::dft::deep_learning::dl_hybrid_xc_param(&energy_components);
+                self.mol.xc_data.dfa_hybrid_scf = next_dfa_paramr_scf[1];
+                self.mol.xc_data.dfa_paramr_scf = next_dfa_paramr_scf[2..].to_vec();
+            },
+            _ => {}
+        }
          
     }
 
