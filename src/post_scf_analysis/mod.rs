@@ -305,9 +305,11 @@ pub fn save_geometry(scf_data: &SCF) {
         file.create_group("geom").unwrap()
     };
     let mass_charge = get_mass_charge(&scf_data.mol.geom.elem);
-    let mut geometry: Vec<(f64,f64,f64,f64)> = vec![];
+    //let mut geometry: Vec<(f64,f64,f64,f64)> = vec![];
+    let mut geometry: Vec<[f64;4]> = vec![];
     mass_charge.iter().zip(scf_data.mol.geom.position.iter_columns_full()).for_each(|(mass_charge, position)| {
-        geometry.push((mass_charge.1,position[0]*ang,position[1]*ang,position[2]*ang));
+        geometry.push([mass_charge.1,position[0]*ang,position[1]*ang,position[2]*ang]);
+        //geometry.push((mass_charge.1,position[0]*ang,position[1]*ang,position[2]*ang));
     });
 
     let is_geom = geom.member_names().unwrap().iter().fold(false,|is_exist,x| {is_exist || x.eq("position")});
