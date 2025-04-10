@@ -24,6 +24,7 @@ mod pyrest_ctrl_io;
 #[derive(Clone,Copy,Debug, Deserialize, Serialize)]
 pub enum JobType {
     SinglePoint,
+    Force,
     GeomOpt,
 }
 
@@ -65,9 +66,12 @@ pub struct InputKeywords {
     // Keywords for RI_K
     #[pyo3(get, set)]
     pub ri_k_only: bool,
-    // Keywords for Gradient
+    // Keywords for gradient, evaluate small contribution from auxiliary basis perturbation
     #[pyo3(get, set)]
     pub auxbasis_response: bool,
+    // Keywords for gradient, whether evaluate from numerical or analytical derivative
+    #[pyo3(get, set)]
+    pub numerical_force: bool,
     // Keywords for IDSF
     #[pyo3(get, set)]
     pub use_isdf: bool,
@@ -209,8 +213,11 @@ pub struct InputKeywords {
     pub force_state_occupation: Vec<ForceStateOccupation>,
     pub auxiliary_reference_states: Vec<(String,usize)>,
     pub rpa_de_excitation_parameters: Option<[f64;4]>,
-    pub pt2_mpi_mode: usize
-
+    pub pt2_mpi_mode: usize,
+    // Maximum memory available in MB, `None` if no limit.
+    // This option is only for single-node computation, and only works in some cases where algorithm awares memory usage and perform batched computation.
+    // For multi-node (MPI), this keyword is not fully discussed.
+    pub max_memory: Option<f64>,
 }
 
 impl InputKeywords {
@@ -229,6 +236,7 @@ impl InputKeywords {
             auxbas_type: String::from("spheric"),
             use_auxbas: true,
             auxbasis_response: false,
+            numerical_force: false,
             use_isdf: false,
             ri_k_only: false,
             isdf_k_only: false,
@@ -319,7 +327,8 @@ impl InputKeywords {
             auxiliary_reference_states: Vec::new(),
             force_state_occupation: Vec::new(),
             rpa_de_excitation_parameters: None,
-            pt2_mpi_mode: 0
+            pt2_mpi_mode: 0,
+            max_memory: None,
         }
     }
 
@@ -507,8 +516,12 @@ impl InputKeywords {
                 //  Keywords for Gradient calculation
                 // ==============================================
                 tmp_input.auxbasis_response = match tmp_ctrl.get("auxbasis_response").unwrap_or(&serde_json::Value::Null) {
-                    serde_json::Value::Bool(tmp_str) => {*tmp_str},
-                    other => {false},
+                    serde_json::Value::Bool(tmp_str) => *tmp_str,
+                    other => false,
+                };
+                tmp_input.numerical_force = match tmp_ctrl.get("numerical_force").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Bool(tmp_str) => *tmp_str,
+                    other => false,
                 };
                 // ==============================================
                 //  JobType
@@ -520,9 +533,11 @@ impl InputKeywords {
                            tmp_xc_low.eq("geometry relaxation") || tmp_xc_low.eq("geom_opt") ||
                            tmp_xc_low.eq("geom_relax") || tmp_xc_low.eq("relax") {
                             JobType::GeomOpt
+                        } else if tmp_xc_low.eq("force") || tmp_xc_low.eq("gradient") {
+                            JobType::Force
                         } else if tmp_xc_low.eq("energy") || tmp_xc_low.eq("single point") ||
                           tmp_xc_low.eq("single_point") {
-                            JobType::SinglePoint
+                            JobType::SinglePoint 
                         } else {
                             JobType::SinglePoint
                         }
@@ -1067,6 +1082,11 @@ impl InputKeywords {
                     other => {false},
                 };
 
+                tmp_input.max_memory = match tmp_ctrl.get("max_memory").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Number(tmp_num) => Some(tmp_num.as_f64().unwrap()),
+                    other => None,
+                };
+
                 //===========================================================
                 // Global check of ctrl keywords and futher modification
                 //============================================================
@@ -1247,6 +1267,7 @@ pub fn overall_parse_and_report_on_ctrl_geom(ctrl: &mut InputKeywords, geom: &mu
 
     match ctrl.job_type {
         JobType::SinglePoint => {println!("Calculation type: Single-point energy")},
+        JobType::Force => {println!("Calculation type: Force calculation")},
         JobType::GeomOpt => {println!("Calculation type: Geometry optimization")},
     }
     if ctrl.xc.eq("dl_dft") {

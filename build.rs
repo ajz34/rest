@@ -12,7 +12,7 @@ fn main() -> miette::Result<()> {
 
     generate_libxc_names_and_values();
 
-    let library_names = ["restmatr","openblas","xc","hdf5","rest2fch"];
+    let library_names = ["restmatr","openblas","xc","hdf5","rest2fch","gomp"];
     library_names.iter().for_each(|name| {
         println!("cargo:rustc-link-lib={}",*name);
     });

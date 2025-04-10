@@ -183,6 +183,59 @@ fn main() -> anyhow::Result<()> {
 
     let jobtype = scf_data.mol.ctrl.job_type.clone();
     match jobtype {
+        JobType::Force => {
+            time_mark.count_start("force");
+            if scf_data.mol.ctrl.print_level>0 {
+                println!("Force calculation invoked");
+            }
+
+            if scf_data.mol.ctrl.numerical_force {
+                if scf_data.mol.ctrl.print_level > 1 {
+                    println!("Gradient evaluation using numerical differentiation");
+                }
+                let displace = scf_data.mol.ctrl.nforce_displacement / ANG;
+                let (_, nforce) = numerical_force(&scf_data, displace, &mpi_operator);
+                println!("------ Output gradient [a.u.] ------");
+                println!("{}", formated_force(&nforce, &scf_data.mol.geom.elem));
+                println!("------------------------------------");
+            } else {
+                // current available analytical gradients methods:
+                // 1) numerical force
+                // 2) analytical RHF, UHF force
+                // 
+                // disallow dft and post-scf calculations for force
+                if scf_data.mol.ctrl.xc.to_lowercase() != "hf" {
+                    panic!("Gradient calculation is only available for RHF and UHF");
+                }
+
+                if scf_data.mol.ctrl.print_level > 1 {
+                    println!("Gradient evaluation using Analytical differentiation");
+                }
+
+                // Please note that this is only a temporary workaround for RHF/UHF gradients.
+                // Totally refactor the following code if necessary if other types of gradients to be implemented.
+                let grad_data: Box<dyn crate::grad::traits::GradAPI> = {
+                    if !scf_data.mol.ctrl.spin_polarization {
+                        let mut grad_data = crate::grad::rhf::RIRHFGradient::new(&scf_data);
+                        grad_data.calc();
+                        Box::new(grad_data)
+                    } else {
+                        let mut grad_data = crate::grad::uhf::RIUHFGradient::new(&scf_data);
+                        grad_data.calc();
+                        Box::new(grad_data)
+                    }
+                };
+
+                let gradient = grad_data.get_gradient();
+
+                println!("------ Output gradient [a.u.] ------");
+                println!("{}", formated_force(&gradient, &scf_data.mol.geom.elem));
+                println!("------------------------------------");
+            }
+
+            time_mark.count("force");
+            time_mark.report("force");
+        },
         JobType::GeomOpt => {
             time_mark.count_start("geom_opt");
             if scf_data.mol.ctrl.print_level>0 {
@@ -431,6 +484,9 @@ fn initialize_time_record(mol: &Molecule) -> utilities::TimeRecords {
     match jobtype {
         JobType::GeomOpt => {
             time_mark.new_item("geom_opt", "geometry optimization");
+        },
+        JobType::Force => {
+            time_mark.new_item("force", "force calculation");
         },
         _ => {}
     };

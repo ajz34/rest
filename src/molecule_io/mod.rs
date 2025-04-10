@@ -1,6 +1,8 @@
 extern crate rest_tensors as tensors;
 
 mod pyrest_molecule_io;
+pub mod with_clause;
+
 use array_tool::vec::Intersect;
 use pyo3::{pyclass, pymethods};
 use rayon::prelude::{IntoParallelRefIterator, IndexedParallelIterator, ParallelIterator};
@@ -3103,8 +3105,62 @@ impl Molecule {
         self.prepare_rimatr_for_ri_v_rayon_v05()
     }
 
+    /// Make an auxiliary molecule from a molecule for calculation.
+    /// The auxmol is very similar to the origin mole,
+    /// except its basis-related infomation is cloned from auxbasis information of the original mole.
+    pub fn make_auxmol_fake(&self) -> Molecule {
+        // this code is copied from TYGao's code
+        let mut auxmol = self.clone();
+        auxmol.num_basis = auxmol.num_auxbas.clone();
+        auxmol.fdqc_bas = auxmol.fdqc_aux_bas.clone();
+        auxmol.cint_fdqc = auxmol.cint_aux_fdqc.clone();
+        auxmol.cint_bas = auxmol.cint_aux_bas.clone();
+        auxmol.cint_atm = auxmol.cint_aux_atm.clone();
+        auxmol.cint_env = auxmol.cint_aux_env.clone();
+        return auxmol;
+    }
 
+    /// Get the slice of AO basis for each atom.
+    /// 
+    /// Output is a vector of 4-element arrays, number of atoms in total,
+    /// where each array contains:
+    /// - `shl0`: start shell (number of shells)
+    /// - `shl1`: end shell (number of shells)
+    /// - `p0`: start AO (number of basis functions)
+    /// - `p1`: end AO (number of basis functions)
+    pub fn aoslice_by_atom(&self) -> Vec<[usize; 4]> {
+        use rest_libcint::cint;
 
+        let atom_of = cint::ATOM_OF as usize;
+
+        let cint_data = self.initialize_cint(false);
+        let cint_bas = self.cint_bas.clone();
+
+        let ao_loc = cint_data.cgto_loc();
+        let natm = self.geom.elem.len();
+        let nbas = cint_bas.len();
+        let mut aoslice = vec![[0; 4]; natm];
+
+        // the following code should assume that atoms in `cint_bas` has been sorted by atom index
+        let delimiter = (0..(nbas - 1))
+            .into_iter()
+            .filter(|&idx| cint_bas[idx + 1][atom_of] != cint_bas[idx][atom_of])
+            .collect::<Vec<usize>>();
+        if delimiter.len() != natm - 1 {
+            unimplemented!("Missing basis in atoms. Currently it should be internal problem in program.");
+        }
+        let shl_idx = 0;
+        for atm in 0..natm {
+            let shl0 = if atm == 0 { 0 } else { delimiter[atm - 1] + 1 };
+            let shl1 = if atm == natm - 1 { nbas } else { delimiter[atm] + 1 };
+            let p0 = ao_loc[shl0];
+            let p1 = ao_loc[shl1];
+            aoslice[atm] = [shl0, shl1, p0, p1];
+        }
+
+        // todo: currently we have not consider missing basis in atom
+        return aoslice;
+    }
 }
 
 pub fn generate_ri3fn_from_rimatr(rimatr: &MatrixFull<f64>, basbas2baspar: &MatrixFull<usize>, baspar2basbas: &Vec<[usize;2]>) -> RIFull<f64> {

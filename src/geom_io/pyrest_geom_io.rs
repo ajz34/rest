@@ -50,9 +50,6 @@ impl GeomCell {
         self.position = pos;
         self.nfree = n_free;
     }
-    pub fn py_calc_nuc_energy(&self) -> f64 {
-        self.calc_nuc_energy()
-    }
     pub fn py_to_xyz(&self, filename:String) {
         self.to_xyz(filename)
     }

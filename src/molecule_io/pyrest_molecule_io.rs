@@ -1,6 +1,6 @@
 use pyo3::{pymethods, PyResult};
 
-use crate::{ctrl_io::InputKeywords, geom_io::GeomCell};
+use crate::{ctrl_io::InputKeywords, geom_io::{calc_nuc_energy, GeomCell}};
 
 use super::Molecule;
 
@@ -23,7 +23,6 @@ impl Molecule {
     }
 
     pub fn calc_nuc_energy(&self) -> f64 {
-        self.geom.calc_nuc_energy()
+        calc_nuc_energy(&self.geom, &self.basis4elem)
     }
-
 }

@@ -49,6 +49,10 @@ rest_tensors = {path="../rest_tensors"}
 rest_libcint = {path="../rest_libcint"}
 #liblbfgs = {path="../rust-lbfgs"}
 liblbfgs = "0.1.0"
+sysinfo = "0.33"
+rstsr = { version = "0.2.6", default-features = false, features = ["openblas", "linalg", "rayon", "std", "col_major"] }
+rstsr-openblas = { version = "0.2.6", features = ["linalg", "openmp"] }
+derive_builder = { version = "0.20" }
 
 [build-dependencies]
 autocxx-build = "0.26.0"

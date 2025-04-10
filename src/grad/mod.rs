@@ -1,7 +1,8 @@
-pub mod rhf;
 pub mod uhf;
 pub mod rks;
 pub mod uks;
+pub mod rhf;
+pub mod traits;
 
 use std::io::{self, Write};
 

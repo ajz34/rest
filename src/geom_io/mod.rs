@@ -180,6 +180,11 @@ impl GeomCell {
     pub fn get_elems_iter(&self) ->  std::slice::Iter<'_, std::string::String> {
         self.elem.iter()
     }
+
+    #[deprecated(note = "
+        This function should be deprecated due to not counting ECP atom charges.
+        Please use `rest::geom_io::calc_nuc_energy` function instead.
+    ")]
     pub fn calc_nuc_energy(&self) -> f64 {
         let mass_charge = get_mass_charge(&self.elem);
         let mut nuc_energy = 0.0;
@@ -198,6 +203,10 @@ impl GeomCell {
         nuc_energy
     }
 
+    #[deprecated(note = "
+        This function should be deprecated due to not counting ECP atom charges.
+        Please use `rest::grad::rhf::calc_de_nuc` function instead.
+    ")]
     pub fn calc_nuc_energy_deriv(&self) -> MatrixFull<f64> {
         let natm = self.elem.len();
         //let mut gs = vec![vec![0.0_f64;3];natm];
