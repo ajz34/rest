@@ -202,6 +202,17 @@ impl SCF {
             }
         }
 
+        // ========================================
+        // For the external field
+        if let Some(ext_field_dipole) = &self.mol.ctrl.ext_field_dipole {
+            use crate::external_field::ExtField;
+            let mut ext_field = ExtField::empty();
+            ext_field.dipole = ext_field_dipole.clone().try_into().unwrap();
+            let tmp_matr = ext_field.contribution_2c(&self.mol);
+            let tmp_matr = tmp_matr.to_matrixupper();
+            self.h_core.iter_mut().zip(tmp_matr.iter()).for_each(|(a,b)| *a += *b);
+        }
+
         // For the ghost point charge term
         if self.mol.geom.ghost_pc_chrg.len() > 0 {
             if self.mol.ctrl.print_level > 0 {

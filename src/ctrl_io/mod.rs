@@ -25,6 +25,7 @@ mod pyrest_ctrl_io;
 pub enum JobType {
     SinglePoint,
     Force,
+    NumDipole,
     GeomOpt,
 }
 
@@ -210,14 +211,17 @@ pub struct InputKeywords {
     // batch size for each thread
     pub batch_size: usize,
     pub nforce_displacement: f64,
+    pub ndipole_displacement: f64,
     pub force_state_occupation: Vec<ForceStateOccupation>,
     pub auxiliary_reference_states: Vec<(String,usize)>,
     pub rpa_de_excitation_parameters: Option<[f64;4]>,
     pub pt2_mpi_mode: usize,
-    // Maximum memory available in MB, `None` if no limit.
-    // This option is only for single-node computation, and only works in some cases where algorithm awares memory usage and perform batched computation.
-    // For multi-node (MPI), this keyword is not fully discussed.
+    /// Maximum memory available in MB, `None` if no limit.
+    /// This option is only for single-node computation, and only works in some cases where algorithm awares memory usage and perform batched computation.
+    /// For multi-node (MPI), this keyword is not fully discussed.
     pub max_memory: Option<f64>,
+    /// External dipole field (x, y, z) intensity in atomic units
+    pub ext_field_dipole: Option<[f64; 3]>,
 }
 
 impl InputKeywords {
@@ -229,6 +233,7 @@ impl InputKeywords {
             batch_size: 64,
             job_type: JobType::SinglePoint,
             nforce_displacement: 0.0013,
+            ndipole_displacement: 3e-4,
             // Keywords for (aux)-basis sets
             basis_path: String::from("./STO-3G"),
             basis_type: String::from("spheric"),
@@ -329,6 +334,7 @@ impl InputKeywords {
             rpa_de_excitation_parameters: None,
             pt2_mpi_mode: 0,
             max_memory: None,
+            ext_field_dipole: None,
         }
     }
 
@@ -535,6 +541,8 @@ impl InputKeywords {
                             JobType::GeomOpt
                         } else if tmp_xc_low.eq("force") || tmp_xc_low.eq("gradient") {
                             JobType::Force
+                        } else if tmp_xc_low.eq("numdipole") || tmp_xc_low.eq("numerical dipole") {
+                            JobType::NumDipole
                         } else if tmp_xc_low.eq("energy") || tmp_xc_low.eq("single point") ||
                           tmp_xc_low.eq("single_point") {
                             JobType::SinglePoint 
@@ -548,6 +556,12 @@ impl InputKeywords {
                     serde_json::Value::String(tmp_nforce) => {tmp_nforce.to_lowercase().parse().unwrap_or(0.0013)},
                     serde_json::Value::Number(tmp_nforce) => {tmp_nforce.as_f64().unwrap_or(0.0013)},
                     other => {0.0013},
+                };
+                tmp_input.ndipole_displacement = match tmp_ctrl.get("nforce_displacement").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_nforce) => {tmp_nforce.to_lowercase().parse().unwrap_or(3e-4)},
+                    serde_json::Value::Number(tmp_nforce) => {tmp_nforce.as_f64().unwrap_or(3e-4)},
+                    serde_json::Value::Null => {3e-4},
+                    other => panic!("The ndipole_displacement is not recognized"),
                 };
                 // ==============================================
                 //  Keywords associated with the method employed
@@ -1087,6 +1101,23 @@ impl InputKeywords {
                     other => None,
                 };
 
+                // ext_field_dipole: [x, y, z]
+                tmp_input.ext_field_dipole = match tmp_ctrl.get("ext_field_dipole").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Array(tmp_arr) => {
+                        assert_eq!(tmp_arr.len(), 3, "Dipole is 3-component (x, y, z) vector");
+                        let mut tmp_array = [0.0; 3];
+                        tmp_array.iter_mut().zip(tmp_arr.iter()).for_each(|(to, from)| {
+                            match from {
+                                serde_json::Value::String(tmp_str) => {*to = tmp_str.parse().unwrap_or(0.0)},
+                                serde_json::Value::Number(tmp_num) => {*to = tmp_num.as_f64().unwrap_or(0.0)},
+                                other => panic!("Not recognized type for ext_field_dipole"),
+                            }
+                        });
+                        Some(tmp_array)
+                    }
+                    other => None,
+                };
+
                 //===========================================================
                 // Global check of ctrl keywords and futher modification
                 //============================================================
@@ -1268,6 +1299,7 @@ pub fn overall_parse_and_report_on_ctrl_geom(ctrl: &mut InputKeywords, geom: &mu
     match ctrl.job_type {
         JobType::SinglePoint => {println!("Calculation type: Single-point energy")},
         JobType::Force => {println!("Calculation type: Force calculation")},
+        JobType::NumDipole => {println!("Calculation type: Numerical dipole calculation")},
         JobType::GeomOpt => {println!("Calculation type: Geometry optimization")},
     }
     if ctrl.xc.eq("dl_dft") {

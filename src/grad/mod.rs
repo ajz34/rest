@@ -6,7 +6,8 @@ pub mod traits;
 
 use std::io::{self, Write};
 
-use crate::{collect_total_energy, constants::{ANG, EV}, performance_essential_calculations, scf_io::{initialize_scf, scf_without_build, SCF}, utilities};
+use crate::main_driver::{collect_total_energy, performance_essential_calculations};
+use crate::{constants::{ANG, EV}, scf_io::{initialize_scf, scf_without_build, SCF}, utilities};
 use crate::mpi_io::{MPIData, MPIOperator};
 use tensors::MatrixFull;
 

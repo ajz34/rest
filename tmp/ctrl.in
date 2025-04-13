@@ -1,0 +1,21 @@
+[ctrl]
+     print_level =          2
+     job_type =             "numerical dipole"
+     xc =                   "hf"
+     basis_path =           "basis-set-pool/def2-TZVP"
+     auxbas_path =          "basis-set-pool/def2-SVP-JKFIT"
+     guessfile =            "none"
+     charge =               0.0
+     spin =                 1.0
+     spin_polarization =    false
+     num_threads =          16
+
+[geom]
+    name = "NH3"
+    unit = "Angstrom"
+    position = """
+        N  0.0  0.0  0.0
+        H  0.0  1.5  1.0
+        H  1.4  1.1  0.0
+        H  1.2  0.0  1.3
+    """

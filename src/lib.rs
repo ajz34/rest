@@ -64,7 +64,13 @@ pub mod molecule_io;
 pub mod scf_io;
 pub mod utilities;
 pub mod external_libs;
+pub mod external_field;
 pub mod mpi_io;
+pub mod grad;
+pub mod post_scf_analysis;
+pub mod main_driver;
+pub mod ri_pt2;
+pub mod ri_rpa;
 
 //extern crate rest;
 

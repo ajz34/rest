@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::mpsc::channel;
 use mpi::collective::SystemOperation;
-use pyrest::mpi_io::{mpi_allreduce, mpi_broadcast, mpi_broadcast_vector};
+use crate::mpi_io::{mpi_allreduce, mpi_broadcast, mpi_broadcast_vector};
 use rayon::prelude::{IndexedParallelIterator, ParallelIterator, IntoParallelRefIterator};
 use rayon::slice::ParallelSlice;
 use rest_tensors::{TensorOpt,RIFull, MatrixFull};
