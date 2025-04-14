@@ -220,8 +220,6 @@ pub struct InputKeywords {
     /// This option is only for single-node computation, and only works in some cases where algorithm awares memory usage and perform batched computation.
     /// For multi-node (MPI), this keyword is not fully discussed.
     pub max_memory: Option<f64>,
-    /// External dipole field (x, y, z) intensity in atomic units
-    pub ext_field_dipole: Option<[f64; 3]>,
 }
 
 impl InputKeywords {
@@ -334,7 +332,6 @@ impl InputKeywords {
             rpa_de_excitation_parameters: None,
             pt2_mpi_mode: 0,
             max_memory: None,
-            ext_field_dipole: None,
         }
     }
 
@@ -1101,23 +1098,6 @@ impl InputKeywords {
                     other => None,
                 };
 
-                // ext_field_dipole: [x, y, z]
-                tmp_input.ext_field_dipole = match tmp_ctrl.get("ext_field_dipole").unwrap_or(&serde_json::Value::Null) {
-                    serde_json::Value::Array(tmp_arr) => {
-                        assert_eq!(tmp_arr.len(), 3, "Dipole is 3-component (x, y, z) vector");
-                        let mut tmp_array = [0.0; 3];
-                        tmp_array.iter_mut().zip(tmp_arr.iter()).for_each(|(to, from)| {
-                            match from {
-                                serde_json::Value::String(tmp_str) => {*to = tmp_str.parse().unwrap_or(0.0)},
-                                serde_json::Value::Number(tmp_num) => {*to = tmp_num.as_f64().unwrap_or(0.0)},
-                                other => panic!("Not recognized type for ext_field_dipole"),
-                            }
-                        });
-                        Some(tmp_array)
-                    }
-                    other => None,
-                };
-
                 //===========================================================
                 // Global check of ctrl keywords and futher modification
                 //============================================================
@@ -1253,6 +1233,23 @@ impl InputKeywords {
                         tmp_geomcell.ghost_ep_pos = MatrixFull::empty();
                     }
                 }
+
+                // ext_field_dipole: [x, y, z]
+                match tmp_geom.get("ext_field_dipole").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Array(tmp_arr) => {
+                        assert_eq!(tmp_arr.len(), 3, "Dipole is 3-component (x, y, z) vector");
+                        let mut tmp_array = [0.0; 3];
+                        tmp_array.iter_mut().zip(tmp_arr.iter()).for_each(|(to, from)| {
+                            match from {
+                                serde_json::Value::String(tmp_str) => {*to = tmp_str.parse().unwrap_or(0.0)},
+                                serde_json::Value::Number(tmp_num) => {*to = tmp_num.as_f64().unwrap_or(0.0)},
+                                other => panic!("Not recognized type for ext_field_dipole"),
+                            }
+                        });
+                        tmp_geomcell.ext_field.dipole = Some(tmp_array);
+                    }
+                    _ => {},
+                };
             },
             other => {
                 panic!("Error:: no 'geom' keyword or some inproper settings of 'geom' keyword in the input file");
