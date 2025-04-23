@@ -128,14 +128,27 @@ impl XcFuncType {
             (0,101,130)
         } else if lower_name.eq(&"xpbe".to_string()) {
             (0,123,136)
+        } else if lower_name.eq(&"scan".to_string()) {
+            (0,263,267)
+        } else if lower_name.eq(&"revscan".to_string()) {
+            (0,581,582)
+        } else if lower_name.eq(&"r2scan".to_string()) {
+            (0,497,498)
+        } else if lower_name.eq(&"tpss".to_string()) {
+            (0,202,231)
         } else if lower_name.eq(&"b3lyp".to_string()) {
             (402,0,0)
         } else if lower_name.eq(&"x3lyp".to_string()) {
             (411,0,0)
         } else if lower_name.eq(&"pbe0".to_string()) {
             (406,0,0)
+        } else if lower_name.eq(&"scan0".to_string()) {
+            (0,264,267)
+        } else if lower_name.eq(&"tpssh".to_string()) {
+            (457,0,0)
+        }
         // for a list of exchange functionals
-        } else if lower_name.eq(&"lda_x_slater".to_string()) {
+        else if lower_name.eq(&"lda_x_slater".to_string()) {
             (0,1,0)
         } else {
             for (name, value) in names_and_values::MAP.iter() {
@@ -266,6 +279,23 @@ impl XcFuncType {
         exc
     }
 
+    pub fn mgga_exc(&self, rho: &[f64], sigma: &[f64], lapl: &[f64], tau: &[f64]) -> Vec<f64> {
+        let length = rho.len()/&self.spin_channel;
+        let mut exc = vec![0.0; length];
+        unsafe{
+            ffi_xc::xc_mgga_exc(
+                self.xc_func_type,
+                length as u64,
+                rho.as_ptr(),
+                sigma.as_ptr(),
+                lapl.as_ptr(),
+                tau.as_ptr(),
+                exc.as_mut_ptr(),
+            );
+        }
+        exc
+    }
+
     pub fn lda_exc_vxc(&self, rho: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let length = rho.len()/&self.spin_channel;
         //println!("debug rho length: {}",length);
@@ -302,6 +332,35 @@ impl XcFuncType {
             );
         }
         (exc,vrho,vsigma)
+    }
+
+    pub fn mgga_exc_vxc(&self, rho:&[f64], sigma:&[f64], lapl:&[f64], tau:&[f64]) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+        let length = rho.len() / &self.spin_channel;
+        let mut exc = vec![0.0; length];
+        let mut vrho = vec![0.0; length * &self.spin_channel];
+        let mut vsigma = if self.spin_channel == 1 {
+            vec![0.0; length]
+        } else {
+            vec![0.0; length*3]
+        };
+        let mut vtau = vec![0.0; length * &self.spin_channel];
+        let mut vlapl = vec![0.0; length * &self.spin_channel];
+        unsafe{
+            ffi_xc::xc_mgga_exc_vxc(
+                self.xc_func_type,
+                length as u64,
+                rho.as_ptr(),
+                sigma.as_ptr(),
+                lapl.as_ptr(),
+                tau.as_ptr(),
+                exc.as_mut_ptr(),
+                vrho.as_mut_ptr(),
+                vsigma.as_mut_ptr(),
+                vlapl.as_mut_ptr(),
+                vtau.as_mut_ptr()
+            );
+        }
+        (exc,vrho,vsigma,vlapl,vtau)
     }
 
     // xc_func_info relevant functions:
