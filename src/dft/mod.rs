@@ -1076,7 +1076,7 @@ impl DFA4REST {
         if let Some(ao) = &grids.ao {
             // for vrho
             for i_spin in  0..spin_channel {
-                let mut loc_vxc_ao_s = &mut loc_vxc_ao_0[0];
+                let mut loc_vxc_ao_s = &mut loc_vxc_ao_0[i_spin];
                 let loc_vrho_s = loc_vrho.slice_column(i_spin);
                 let loc_ao_ref = ao.to_matrixfullslice_columns(range_grids.clone());
                 // generate vxc grid by grid
@@ -1502,7 +1502,7 @@ impl DFA4REST {
                         // ==================================
                     } // end spin case for GGA
 
-                    // construc vxc_mat for LDA/GGA 
+                    // construct vxc_mat for LDA/GGA 
                     for i_spin in 0..spin_channel {
                         let mut loc_vxc_mat_s = loc_vxc_mat.get_mut(i_spin).unwrap();
                         let mut loc_vxc_ao_s = loc_vxc_ao.get_mut(i_spin).unwrap();
@@ -2452,7 +2452,7 @@ impl Grids {
                 };
                 //==================================
                 let num_occ = occ_s.len();
-                // wmo = weigthed mo ('ij,j->ij'): mo_s(ij), occ_s(j) -> wmo(ij)
+                // wmo = weighted mo ('ij,j->ij'): mo_s(ij), occ_s(j) -> wmo(ij)
                 let mut wmo = _einsum_01_rayon(&mo_s.to_matrixfullslice(),&occ_s);
 
                 let mut tmo = MatrixFull::new([num_occ,num_grids],0.0);
@@ -2478,7 +2478,7 @@ impl Grids {
                 let mut occ_s = occ.get(i_spin).unwrap()
                     .iter().filter(|occ| **occ>0.0).map(|occ| occ.sqrt()).collect_vec();
                 let num_occu = occ_s.len();
-                // wmo = weigthed mo ('ij,j->ij'): mo_s(ij), occ_s(j) -> wmo(ij)
+                // wmo = weighted mo ('ij,j->ij'): mo_s(ij), occ_s(j) -> wmo(ij)
                 let mut wmo = _einsum_01_rayon(&mo_s.to_matrixfullslice(),&occ_s);
 
                 let mut tmo = MatrixFull::new([wmo.size[1],ao.size[1]],0.0);
