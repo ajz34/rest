@@ -222,6 +222,7 @@ pub struct InputKeywords {
     pub max_memory: Option<f64>,
     /// External dipole field (x, y, z) intensity in atomic units
     pub ext_field_dipole: Option<[f64; 3]>,
+    pub opt_engine: Option<String>,
 }
 
 impl InputKeywords {
@@ -335,6 +336,7 @@ impl InputKeywords {
             pt2_mpi_mode: 0,
             max_memory: None,
             ext_field_dipole: None,
+            opt_engine: None,
         }
     }
 
@@ -1116,6 +1118,19 @@ impl InputKeywords {
                         Some(tmp_array)
                     }
                     other => None,
+                };
+
+                // opt_engine: available options: "lbfgs", "geometric-pyo3"; default: "lbfgs"
+                tmp_input.opt_engine = match tmp_ctrl.get("opt_engine").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_str) => { 
+                        let s = tmp_str.to_lowercase();
+                        match s.as_str() {
+                            "lbfgs" | "geometric-pyo3" => Some(s.to_string()),
+                            _ => panic!("Not recognized option for opt_engine: {}", s),
+                        }
+                    },
+                    serde_json::Value::Null => { None },
+                    _ => panic!("Not recognized type for opt_engine"),
                 };
 
                 //===========================================================
