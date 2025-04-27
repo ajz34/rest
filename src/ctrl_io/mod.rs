@@ -222,7 +222,10 @@ pub struct InputKeywords {
     pub max_memory: Option<f64>,
     pub guess_mix: bool,
     pub guess_mix_theta_deg: Vec<f64>,
-    pub spin_correction_scheme: Option<String>
+    pub spin_correction_scheme: Option<String>,
+    /// External dipole field (x, y, z) intensity in atomic units
+    pub ext_field_dipole: Option<[f64; 3]>,
+    pub opt_engine: Option<String>,
 }
 
 impl InputKeywords {
@@ -337,7 +340,9 @@ impl InputKeywords {
             max_memory: None,
             guess_mix: false,
             guess_mix_theta_deg: [15.0, 15.0].to_vec(),
-            spin_correction_scheme: None
+            spin_correction_scheme: None,
+            ext_field_dipole: None,
+            opt_engine: None,
         }
     }
 
@@ -1192,6 +1197,19 @@ impl InputKeywords {
                 tmp_input.spin_correction_scheme = match tmp_ctrl.get("spin_correction_scheme").unwrap_or(&serde_json::Value::Null) {
                     serde_json::Value::String(tmp_emp) => {Some(tmp_emp.to_lowercase())},
                     other => {None},
+                };
+
+                // opt_engine: available options: "lbfgs", "geometric-pyo3"; default: "lbfgs"
+                tmp_input.opt_engine = match tmp_ctrl.get("opt_engine").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_str) => { 
+                        let s = tmp_str.to_lowercase();
+                        match s.as_str() {
+                            "lbfgs" | "geometric-pyo3" => Some(s.to_string()),
+                            _ => panic!("Not recognized option for opt_engine: {}", s),
+                        }
+                    },
+                    serde_json::Value::Null => { None },
+                    _ => panic!("Not recognized type for opt_engine"),
                 };
 
                 //===========================================================
