@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::basis_io::Basis4Elem;
 use crate::constants::{SPECIES_NAME,MASS_CHARGE,ANG,SPECIES_INFO};
+use crate::external_field::ExtField;
 mod pyrest_geom_io;
 
 
@@ -48,6 +49,7 @@ pub struct GeomCell {
     pub ghost_ep_pos: MatrixFull<f64>,
     #[pyo3(get,set)]
     pub rest : Vec<(usize,String)>,
+    pub ext_field: ExtField<f64>,
 }
 
 //impl GeomCell {
@@ -151,6 +153,7 @@ impl GeomCell {
             ghost_pc_pos    : MatrixFull::empty(),
             ghost_ep_path   : vec![],
             ghost_ep_pos    : MatrixFull::empty(),
+            ext_field       : ExtField::empty(),
         }
     }
     pub fn copy(&mut self, name:String) -> GeomCell {
@@ -775,6 +778,28 @@ pub fn calc_nuc_energy_with_point_charges(geom: &GeomCell, basis4elem: &Vec<Basi
         });
     };
     nuc_energy
+}
+
+pub fn calc_nuc_energy_with_ext_field(geom: &GeomCell, basis4elem: &Vec<Basis4Elem>) -> f64 {
+    if geom.ext_field.dipole.is_none() {
+        return 0.0;
+    }
+
+    let atom_charge = get_charge(&geom.elem);
+    let ecp_charge = basis4elem.iter().map(|x| x.ecp_electrons.unwrap_or(0)).collect::<Vec<usize>>();
+    let eff_charge = izip!(atom_charge, ecp_charge).map(|(x, y)| x - y as f64).collect::<Vec<f64>>();
+    let natm = eff_charge.len();
+    let ext_field_dipole = geom.ext_field.dipole.unwrap();
+    let position = &geom.position;
+
+    let mut nuc_energy = 0.0;
+    for n in 0..natm {
+        for t in 0..3 {
+            let mut tmp = 0.0;
+            nuc_energy += eff_charge[n] * position[[t, n]] * ext_field_dipole[t];
+        }
+    }
+    return nuc_energy;
 }
 
 

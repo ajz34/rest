@@ -3,7 +3,7 @@ use crate::check_norm::force_state_occupation::adapt_occupation_with_force_proje
 use crate::check_norm::{self, generate_occupation_frac_occ, generate_occupation_integer, generate_occupation_sad, OCCType};
 use crate::dft::gen_grids::prune::prune_by_rho;
 use crate::dft::{numerical_density, DFTType, Grids};
-use crate::geom_io::{calc_nuc_energy, calc_nuc_energy_with_point_charges};
+use crate::geom_io::{calc_nuc_energy, calc_nuc_energy_with_ext_field, calc_nuc_energy_with_point_charges};
 use crate::mpi_io::{mpi_broadcast, mpi_broadcast_matrixfull, mpi_broadcast_vector, mpi_reduce, MPIOperator};
 use crate::utilities::{create_pool, TimeRecords};
 ////use blas_src::openblas::dgemm;
@@ -157,12 +157,17 @@ impl SCF {
         self.nuc_energy = calc_nuc_energy(&self.mol.geom, &self.mol.basis4elem);
 
         let nuc_energy_pc = calc_nuc_energy_with_point_charges(&self.mol.geom, &self.mol.basis4elem);
+        let nuc_energy_ext_field = calc_nuc_energy_with_ext_field(&self.mol.geom, &self.mol.basis4elem);
         self.nuc_energy += nuc_energy_pc;
+        self.nuc_energy += nuc_energy_ext_field;
 
         if print_level>0 {
             println!("Nuc_energy: {:16.8} Hartree",self.nuc_energy);
             if nuc_energy_pc.abs() > 1.0e-4 {
                 println!("External potential due to point charges exists: {:16.8} Hartree", &nuc_energy_pc);
+            }
+            if nuc_energy_ext_field.abs() > 1.0e-10 {
+                println!("External dipole field contribution to nuc energy exists: {:16.8} Hartree", &nuc_energy_ext_field);
             }
         }
         //========================================
@@ -204,7 +209,7 @@ impl SCF {
 
         // ========================================
         // For the external field
-        if let Some(ext_field_dipole) = &self.mol.ctrl.ext_field_dipole {
+        if let Some(ext_field_dipole) = &self.mol.geom.ext_field.dipole {
             use crate::external_field::ExtField;
             let mut ext_field = ExtField::empty();
             ext_field.dipole = ext_field_dipole.clone().try_into().unwrap();

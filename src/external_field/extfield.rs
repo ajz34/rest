@@ -11,6 +11,7 @@ use crate::molecule_io::Molecule;
 /// Currently only dipole field is implemented.
 /// - dipole: Dipole field vector [x, y, z]
 #[non_exhaustive]
+#[derive(Debug, Clone)]
 pub struct ExtField<T> {
     pub dipole: Option<[T; 3]>,
     // pub quadrupole: Option<[T; 9]>,
@@ -43,7 +44,7 @@ impl ExtField<f64> {
                 };
                 for t in (0..3) {
                     let tsr_int1e_t = tsr_int1e_r.get_reducing_matrix(t).unwrap();
-                    result += tsr_int1e_t.to_matrixfull().unwrap() * dipole[t];
+                    result += tsr_int1e_t.to_matrixfull().unwrap() * (-dipole[t]);
                 }
             }
         }
