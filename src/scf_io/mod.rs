@@ -2512,26 +2512,28 @@ impl SCF {
         if let Some(grids) = &self.grids {
             let (sender, receiver) = channel();
             grids.parallel_balancing.par_iter().for_each_with(sender,|s,range_grids| {
-                let (exc,vxc_ao,total_elec) = self.mol.xc_data.xc_exc_vxc_slots_dm_only(range_grids.clone(), grids, spin_channel,dm, mo, occ);
+                // change the return of xc_exc_vxc, directly return vxc_mat [num_basis, num_basis]
+                // let (exc,vxc_ao,total_elec) = self.mol.xc_data.xc_exc_vxc_slots_dm_only(range_grids.clone(), grids, spin_channel,dm, mo, occ);
                 //exc_spin = exc;
-                let mut vxc_mf: Vec<MatrixFull<f64>> = vec![MatrixFull::new([num_basis,num_basis],0.0f64);spin_channel];;
-                if let Some(ao) = &grids.ao {
-                    for i_spin in 0..spin_channel {
+                let (exc, vxc_mf, total_elec) = self.mol.xc_data.xc_exc_vxc_slots_dm_only(range_grids.clone(), grids, spin_channel,dm, mo, occ);
+                // let mut vxc_mf: Vec<MatrixFull<f64>> = vec![MatrixFull::new([num_basis,num_basis],0.0f64);spin_channel];;
+                // if let Some(ao) = &grids.ao {
+                //     for i_spin in 0..spin_channel {
 
-                        let vxc_mf_s = vxc_mf.get_mut(i_spin).unwrap();
-                        let vxc_ao_s = vxc_ao.get(i_spin).unwrap();
-                        rest_tensors::matrix::matrix_blas_lapack::_dgemm(
-                            ao,(0..num_basis, range_grids.clone()),'N',
-                            vxc_ao_s,(0..num_basis,0..range_grids.len()),'T',
-                            vxc_mf_s, (0..num_basis,0..num_basis),
-                            1.0,0.0);
+                //         let vxc_mf_s = vxc_mf.get_mut(i_spin).unwrap();
+                //         let vxc_ao_s = vxc_ao.get(i_spin).unwrap();
+                //         rest_tensors::matrix::matrix_blas_lapack::_dgemm(
+                //             ao,(0..num_basis, range_grids.clone()),'N',
+                //             vxc_ao_s,(0..num_basis,0..range_grids.len()),'T',
+                //             vxc_mf_s, (0..num_basis,0..num_basis),
+                //             1.0,0.0);
 
-                        //vxc_mf_s.to_matrixfullslicemut().lapack_dgemm(
-                        //    &ao.to_matrixfullslice(), 
-                        //    &vxc_ao_s.to_matrixfullslice(),
-                        //    'N', 'T', 1.0, 0.0);
-                    }
-                }
+                //         //vxc_mf_s.to_matrixfullslicemut().lapack_dgemm(
+                //         //    &ao.to_matrixfullslice(), 
+                //         //    &vxc_ao_s.to_matrixfullslice(),
+                //         //    'N', 'T', 1.0, 0.0);
+                //     }
+                // }
                 s.send((vxc_mf,exc,total_elec)).unwrap()
             });
             receiver.into_iter().for_each(|(vxc_mf_local,exc_local,loc_total_elec)| {
@@ -2698,26 +2700,28 @@ impl SCF {
         if let Some(grids) = &self.grids {
             let (sender, receiver) = channel();
             grids.parallel_balancing.par_iter().for_each_with(sender,|s,range_grids| {
-                let (exc,vxc_ao,total_elec) = self.mol.xc_data.xc_exc_vxc_slots(range_grids.clone(), grids, spin_channel,dm, mo, occ);
+                // change the return value of xc_exc_vxc by vxc_mat [num_basis, num_basis]
+                // let (exc,vxc_ao,total_elec) = self.mol.xc_data.xc_exc_vxc_slots(range_grids.clone(), grids, spin_channel,dm, mo, occ);
                 //exc_spin = exc;
-                let mut vxc_mf: Vec<MatrixFull<f64>> = vec![MatrixFull::new([num_basis,num_basis],0.0f64);spin_channel];;
-                if let Some(ao) = &grids.ao {
-                    for i_spin in 0..spin_channel {
+                let (exc, vxc_mf, total_elec) = self.mol.xc_data.xc_exc_vxc_slots(range_grids.clone(), grids, spin_channel, dm, mo, occ);
+                // let mut vxc_mf: Vec<MatrixFull<f64>> = vec![MatrixFull::new([num_basis,num_basis],0.0f64);spin_channel];;
+                // if let Some(ao) = &grids.ao {
+                //     for i_spin in 0..spin_channel {
 
-                        let vxc_mf_s = vxc_mf.get_mut(i_spin).unwrap();
-                        let vxc_ao_s = vxc_ao.get(i_spin).unwrap();
-                        rest_tensors::matrix::matrix_blas_lapack::_dgemm(
-                            ao,(0..num_basis, range_grids.clone()),'N',
-                            vxc_ao_s,(0..num_basis,0..range_grids.len()),'T',
-                            vxc_mf_s, (0..num_basis,0..num_basis),
-                            1.0,0.0);
+                //         let vxc_mf_s = vxc_mf.get_mut(i_spin).unwrap();
+                //         let vxc_ao_s = vxc_ao.get(i_spin).unwrap();
+                //         rest_tensors::matrix::matrix_blas_lapack::_dgemm(
+                //             ao,(0..num_basis, range_grids.clone()),'N',
+                //             vxc_ao_s,(0..num_basis,0..range_grids.len()),'T',
+                //             vxc_mf_s, (0..num_basis,0..num_basis),
+                //             1.0,0.0);
 
-                        //vxc_mf_s.to_matrixfullslicemut().lapack_dgemm(
-                        //    &ao.to_matrixfullslice(), 
-                        //    &vxc_ao_s.to_matrixfullslice(),
-                        //    'N', 'T', 1.0, 0.0);
-                    }
-                }
+                //         //vxc_mf_s.to_matrixfullslicemut().lapack_dgemm(
+                //         //    &ao.to_matrixfullslice(), 
+                //         //    &vxc_ao_s.to_matrixfullslice(),
+                //         //    'N', 'T', 1.0, 0.0);
+                //     }
+                // }
                 s.send((vxc_mf,exc,total_elec)).unwrap()
             });
             receiver.into_iter().for_each(|(vxc_mf_local,exc_local,loc_total_elec)| {

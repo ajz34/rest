@@ -106,7 +106,7 @@ pub const CAR_BAS_INFO_L2: CarBasInfo = CarBasInfo::L2(DMatrix4x6 {
             0.0, 0.0, 2.0, 0.5773502691896258]
 });
 pub const CAR_BAS_INFO_L3: CarBasInfo = CarBasInfo::L3(DMatrix4x10 {
-    size: [4,6], 
+    size: [4,10], 
     indicing: [1,4], 
     data: [3.0, 0.0, 0.0, 0.2581988897471611, 
            2.0, 1.0, 0.0, 0.5773502691896258, 
@@ -139,7 +139,7 @@ pub const CAR_BAS_INFO_L4: CarBasInfo = CarBasInfo::L4(DMatrix4x15 {
            0.0, 0.0, 4.0, 0.09759000729485333]
 });
 pub const CAR_BAS_INFO_L5: CarBasInfo = CarBasInfo::L5(DMatrix4x21 {
-    size: [4,15], 
+    size: [4,21], 
     indicing: [1,4], 
     data: [5.0, 0.0, 0.0, 0.03253000243161777, 
            4.0, 1.0, 0.0, 0.09759000729485333, 
@@ -164,7 +164,7 @@ pub const CAR_BAS_INFO_L5: CarBasInfo = CarBasInfo::L5(DMatrix4x21 {
            0.0, 0.0, 5.0, 0.03253000243161777]
 });
 pub const CAR_BAS_INFO_L6: CarBasInfo = CarBasInfo::L6(DMatrix4x28 {
-    size: [4,15], 
+    size: [4,28], 
     indicing: [1,4], 
     data: [6.0, 0.0, 0.0, 0.009808164772274995, 
            5.0, 1.0, 0.0, 0.03253000243161777, 
