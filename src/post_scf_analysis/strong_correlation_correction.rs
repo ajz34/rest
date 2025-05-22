@@ -2,7 +2,7 @@ use tensors::MatrixFull;
 
 use crate::constants::{E, EV};
 use crate::mpi_io::MPIOperator;
-use crate::scf_io::SCF;
+use crate::scf_io::{SCF, SCFType};
 use crate::ri_rpa::scsrpa::{evaluate_special_radius_only, evaluate_osrpa_correlation_rayon}; 
 use crate::ri_pt2::sbge2::{close_shell_sbge2_detailed_rayon, open_shell_sbge2_detailed_rayon};
 
@@ -27,27 +27,40 @@ pub fn scc15_for_rxdh7(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) -
 
     let mut scc = 0.0;
     // prepare energy gaps
-    let energy_gap = if spin_channel == 1 {
-        let homo = scf_data.homo[0];
-        let lumo = scf_data.lumo[0];
-        let e_homo = scf_data.eigenvalues[0][homo];
-        let e_lumo = scf_data.eigenvalues[0][lumo];
-        (e_lumo - e_homo)*EV
-    } else {
-        let homo_0 = scf_data.homo[0];
-        let lumo_0 = scf_data.lumo[0];
-        let e_homo_0 = scf_data.eigenvalues[0][homo_0];
-        let e_lumo_0 = scf_data.eigenvalues[0][lumo_0];
-        let homo_1 = scf_data.homo[1];
-        let lumo_1 = scf_data.lumo[1];
-        let e_homo_1 = scf_data.eigenvalues[1][homo_1];
-        let e_lumo_1 = scf_data.eigenvalues[1][lumo_1];
-        (e_lumo_0.min(e_lumo_1) - e_homo_0.max(e_homo_1))*EV
+    let energy_gap = match scf_data.scftype {
+        SCFType::RHF => {
+            let homo = scf_data.homo[0];
+            let lumo = scf_data.lumo[0];
+            let e_homo = scf_data.eigenvalues[0][homo];
+            let e_lumo = scf_data.eigenvalues[0][lumo];
+            (e_lumo - e_homo)*EV
+        },
+        SCFType::UHF => {
+            let homo_0 = scf_data.homo[0];
+            let lumo_0 = scf_data.lumo[0];
+            let e_homo_0 = scf_data.eigenvalues[0][homo_0];
+            let e_lumo_0 = scf_data.eigenvalues[0][lumo_0];
+            let homo_1 = scf_data.homo[1];
+            let lumo_1 = scf_data.lumo[1];
+            let e_homo_1 = scf_data.eigenvalues[1][homo_1];
+            let e_lumo_1 = scf_data.eigenvalues[1][lumo_1];
+            (e_lumo_0.min(e_lumo_1) - e_homo_0.max(e_homo_1))*EV
+        },
+        SCFType::ROHF => {
+            let homo_0 = scf_data.homo[0];
+            let lumo_0 = scf_data.lumo[0];
+            let e_homo_0 = scf_data.semi_eigenvalues[0][homo_0];
+            let e_lumo_0 = scf_data.semi_eigenvalues[0][lumo_0];
+            let homo_1 = scf_data.homo[1];
+            let lumo_1 = scf_data.lumo[1];
+            let e_homo_1 = scf_data.semi_eigenvalues[1][homo_1];
+            let e_lumo_1 = scf_data.semi_eigenvalues[1][lumo_1];
+            (e_lumo_0.min(e_lumo_1) - e_homo_0.max(e_homo_1))*EV            
+        }
     };
     let special_radius = evaluate_special_radius_only(scf_data).unwrap();
-    let x_max = if special_radius[0] > special_radius[1] {special_radius[0]} else {special_radius[1]};
-    let x_min = if special_radius[0] < special_radius[1] {special_radius[0]} else {special_radius[1]};
-
+    let x_max = special_radius[0].max(special_radius[1]);
+    let x_min = special_radius[0].min(special_radius[1]);
 
     // collect the hf exchange
     let x_hf = if let Some(x_hf) =scf_data.energies.get("x_hf") {

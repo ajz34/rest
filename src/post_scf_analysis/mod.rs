@@ -16,7 +16,7 @@ use crate::mpi_io::MPIOperator;
 use crate::ri_pt2::sbge2::{close_shell_sbge2_rayon, open_shell_sbge2_rayon, close_shell_sbge2_detailed_rayon, open_shell_sbge2_detailed_rayon};
 use crate::ri_rpa::scsrpa::{evaluate_osrpa_correlation_rayon, evaluate_spin_response_rayon, evaluate_special_radius_only};
 use crate::ri_rpa::{evaluate_rpa_correlation, evaluate_rpa_correlation_rayon};
-use crate::scf_io::SCF;
+use crate::scf_io::{SCF, SCFType};
 use crate::ri_pt2::{close_shell_pt2_rayon, open_shell_pt2_rayon};
 use crate::utilities::TimeRecords;
 
@@ -195,6 +195,9 @@ pub fn save_chkfile(scf_data: &SCF) {
     for i_spin in 0..scf_data.mol.spin_channel {
         let tmp_eigenvectors = scf_data.eigenvectors[i_spin].transpose();
         eigenvectors.extend(tmp_eigenvectors.data.iter());
+        if let SCFType::ROHF = scf_data.scftype { // ROHF: only process i_spin = 0, since alpha/beta eigenvectors are the same
+            break
+        }
     }
     if is_exist {
         let dataset = scf.dataset("mo_coeff").unwrap();
@@ -207,6 +210,9 @@ pub fn save_chkfile(scf_data: &SCF) {
     let mut eigenvalues: Vec<f64> = vec![];
     for i_spin in 0..scf_data.mol.spin_channel {
         eigenvalues.extend(scf_data.eigenvalues[i_spin].iter());
+        if let SCFType::ROHF = scf_data.scftype { /// ROHF: only process i_spin = 0, since alpha/beta eigenvalues are the same
+            break 
+        }
     }
     if is_exist {
         let dataset = scf.dataset("mo_energy").unwrap();

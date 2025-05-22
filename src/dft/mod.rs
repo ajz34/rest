@@ -719,7 +719,14 @@ impl DFA4REST {
         let mut vxc_ao = vec![MatrixFull::new([num_basis,num_grids],0.0);spin_channel];
         let dt0 = utilities::init_timing();
 
-        let (rho,rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
+        let (rho,rhop) = if ! mo[1].data.is_empty() || spin_channel == 1 { // RHF or UHF case
+            grids.prepare_tabulated_density_2(mo, occ, spin_channel)
+        } else { // ROHF case
+            let mut mo_temp = mo.clone();
+            mo_temp[1] = mo_temp[0].clone();
+            grids.prepare_tabulated_density_2(&mo_temp, occ, spin_channel)
+        };
+        
         let dt2 = utilities::timing(&dt0, Some("evaluate rho and rhop"));
         let sigma = if self.use_density_gradient() {
             prepare_tabulated_sigma_rayon(&rhop, spin_channel)
@@ -1291,8 +1298,14 @@ impl DFA4REST {
             let loc_tau_vec = loc_rho_emsemble.get_reducing_matrix(5).unwrap().iter().copied().collect_vec();
             loc_tau = MatrixFull::from_vec([num_grids, spin_channel], loc_tau_vec).unwrap();
         } else {
-            (loc_rho,loc_rhop) = grids.prepare_tabulated_density_slots(mo, occ, spin_channel,range_grids.clone());
-        }
+            (loc_rho,loc_rhop) = if ! mo[1].data.is_empty() || spin_channel == 1 { // RHF or UHF case
+                grids.prepare_tabulated_density_slots(mo, occ, spin_channel,range_grids.clone())
+            } else { // ROHF case
+                let mut mo_temp = mo.clone();
+                mo_temp[1] = mo_temp[0].clone();
+                grids.prepare_tabulated_density_slots(&mo_temp, occ, spin_channel,range_grids.clone())
+            }
+        };
         let loc_sigma = if self.use_density_gradient() {
             prepare_tabulated_sigma(&loc_rhop, spin_channel)
         } else {
@@ -1584,7 +1597,13 @@ impl DFA4REST {
         let num_grids = grids.coordinates.len();
         let num_basis = dm[0].size[0];
         let dt0 = utilities::init_timing();
-        let (rho,rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
+        let (rho,rhop) = if ! mo[1].data.is_empty() || spin_channel == 1 { // RHF or UHF case
+            grids.prepare_tabulated_density_2(mo, occ, spin_channel)
+        } else { // ROHF case
+            let mut mo_temp = mo.clone();
+            mo_temp[1] = mo_temp[0].clone();
+            grids.prepare_tabulated_density_2(&mo_temp, occ, spin_channel)
+        };
         //let (rho,rhop) = grids.prepare_tabulated_density(dm, spin_channel);
         let use_density_gradient = post_xc.iter().fold(false,|flag, x| {
             let code = DFA4REST::xc_func_init_fdqc(x,spin_channel);
@@ -1630,7 +1649,13 @@ impl DFA4REST {
         let num_grids = grids.coordinates.len();
         let num_basis = dm[0].size[0];
         let dt0 = utilities::init_timing();
-        let (rho,rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
+        let (rho,rhop) = if ! mo[1].data.is_empty() || spin_channel == 1 { // RHF or UHF case
+            grids.prepare_tabulated_density_2(mo, occ, spin_channel)
+        } else { // ROHF case
+            let mut mo_temp = mo.clone();
+            mo_temp[1] = mo_temp[0].clone();
+            grids.prepare_tabulated_density_2(&mo_temp, occ, spin_channel)
+        };
         //let (rho,rhop) = grids.prepare_tabulated_density(dm, spin_channel);
         let use_density_gradient = xc_code_list.iter().fold(false,|flag, xc_code| {
             let xc_func = self.init_libxc(xc_code);
@@ -1679,8 +1704,14 @@ impl DFA4REST {
             (rho, rhop, tau) = grids.prepare_tabulated_density_3(mo, occ, spin_channel);
             lapl = MatrixFull::new([num_grids, spin_channel], 0.0);
         } else {
-            (rho, rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
-        }
+            (rho,rhop) = if ! mo[1].data.is_empty() || spin_channel == 1 { // RHF or UHF case
+                grids.prepare_tabulated_density_2(mo, occ, spin_channel)
+            } else { // ROHF case
+                let mut mo_temp = mo.clone();
+                mo_temp[1] = mo_temp[0].clone();
+                grids.prepare_tabulated_density_2(&mo_temp, occ, spin_channel)
+            }
+        };
         // let (rho,rhop) = grids.prepare_tabulated_density_2(mo, occ, spin_channel);
         let dt2 = utilities::timing(&dt0, Some("evaluate rho and rhop"));
         let sigma = if self.use_density_gradient() {
