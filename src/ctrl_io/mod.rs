@@ -220,6 +220,7 @@ pub struct InputKeywords {
     /// This option is only for single-node computation, and only works in some cases where algorithm awares memory usage and perform batched computation.
     /// For multi-node (MPI), this keyword is not fully discussed.
     pub max_memory: Option<f64>,
+    pub guess_mix_ratio: f64
 }
 
 impl InputKeywords {
@@ -332,6 +333,7 @@ impl InputKeywords {
             rpa_de_excitation_parameters: None,
             pt2_mpi_mode: 0,
             max_memory: None,
+            guess_mix_ratio: 0.0
         }
     }
 
@@ -1097,6 +1099,13 @@ impl InputKeywords {
                     serde_json::Value::Number(tmp_num) => Some(tmp_num.as_f64().unwrap()),
                     other => None,
                 };
+                
+                // for guess_mix setting
+                tmp_input.guess_mix_ratio = match tmp_ctrl.get("guess_mix_ratio").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Number(tmp_num) => tmp_num.as_f64().unwrap_or(0.0),
+                    serde_json::Value::String(tmp_str) => tmp_str.to_lowercase().parse().unwrap_or(0.0),
+                    _ => 0.0,
+                };
 
                 //===========================================================
                 // Global check of ctrl keywords and futher modification
@@ -1406,6 +1415,9 @@ pub fn overall_parse_and_report_on_ctrl_geom(ctrl: &mut InputKeywords, geom: &mu
             println!("The initial guess is obtained from the specified file \n({})", &ctrl.guessfile);
         }
 
+        if ctrl.guess_mix_ratio != 0.0 {
+            println!("Initial guess mixing (HOMO-LUMO) is enabled with ratio = {}", ctrl.guess_mix_ratio);
+        }
 
     }
     println!("=========================================================");

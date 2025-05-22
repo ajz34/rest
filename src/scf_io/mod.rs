@@ -4689,6 +4689,46 @@ pub fn scf_without_build(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>)
     // now prepare the input density matrix for the first iteration and initialize the records
     scf_data.diagonalize_hamiltonian(mpi_operator);
     scf_data.generate_occupation();
+
+    // mix the homo and lumo MO coeff. In most cases, mixing just one spin channel are more likely to converge at a symmetry-broken state.
+    if scf_data.mol.ctrl.guess_mix_ratio != 0.0 {
+        let ratio = scf_data.mol.ctrl.guess_mix_ratio;
+        if ratio <= 0.0 || ratio > 0.5 {
+            println!(
+                "WARNING: guess_mix_ratio = {} may be too {}",
+                ratio,
+                if ratio <= 0.0 {
+                    "small (no effect)"
+                } else {
+                    "large (may destabilize SCF)"
+                }
+            );
+        }
+        let homo = scf_data.homo[0];
+        let lumo = scf_data.lumo[0];
+        let eigenvector_mut = scf_data.eigenvectors.get_mut(0).unwrap();
+        let homo_iter = eigenvector_mut.iter_column(homo);
+        let lumo_iter = eigenvector_mut.iter_column(lumo);
+
+        let homo_vec: Vec<f64> = homo_iter.clone().copied().collect();
+        let lumo_vec: Vec<f64> = lumo_iter.clone().copied().collect();
+
+        let mixed_homo_vec: Vec<f64> = homo_vec.iter().zip(lumo_vec.iter()).map(|(h, l)| (1.0 - ratio) * h + ratio * l).collect();
+        let mixed_lumo_vec: Vec<f64> = homo_vec.iter().zip(lumo_vec.iter()).map(|(h, l)| -ratio * h + (1.0 - ratio) * l).collect();
+
+        let mut homo_col = eigenvector_mut.iter_column_mut(homo);
+        let norm_homo = mixed_homo_vec.iter().map(|x| x * x).sum::<f64>().sqrt();
+        for (val, slot) in mixed_homo_vec.iter().zip(homo_col.by_ref()) {
+            *slot = *val / norm_homo;
+        }
+        
+        let mut lumo_col = eigenvector_mut.iter_column_mut(lumo);
+        let norm_lumo = mixed_lumo_vec.iter().map(|x| x * x).sum::<f64>().sqrt();
+        for (val, slot) in mixed_lumo_vec.iter().zip(lumo_col.by_ref()) {
+            *slot = *val / norm_lumo;
+        }
+    }
+
     scf_data.generate_density_matrix();
     scf_records.update(&scf_data);
 
