@@ -4691,41 +4691,43 @@ pub fn scf_without_build(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>)
     scf_data.generate_occupation();
 
     // mix the homo and lumo MO coeff. In most cases, mixing just one spin channel are more likely to converge at a symmetry-broken state.
-    if scf_data.mol.ctrl.guess_mix_ratio != 0.0 {
-        let ratio = scf_data.mol.ctrl.guess_mix_ratio;
-        if ratio <= 0.0 || ratio > 0.5 {
-            println!(
-                "WARNING: guess_mix_ratio = {} may be too {}",
-                ratio,
-                if ratio <= 0.0 {
-                    "small (no effect)"
-                } else {
-                    "large (may destabilize SCF)"
-                }
-            );
+    if scf_data.mol.ctrl.guess_mix {
+        let theta_deg = scf_data.mol.ctrl.guess_mix_theta_deg;
+        if theta_deg <= 0.0 || theta_deg > 45.0 {
+            println!("WARNING: theta = {:.1}° is outside the recommended range (0°–45°); mixing may be ineffective or unstable.", theta_deg);
         }
-        let homo = scf_data.homo[0];
-        let lumo = scf_data.lumo[0];
-        let eigenvector_mut = scf_data.eigenvectors.get_mut(0).unwrap();
-        let homo_iter = eigenvector_mut.iter_column(homo);
-        let lumo_iter = eigenvector_mut.iter_column(lumo);
 
-        let homo_vec: Vec<f64> = homo_iter.clone().copied().collect();
-        let lumo_vec: Vec<f64> = lumo_iter.clone().copied().collect();
+        let theta_rad = theta_deg.to_radians();
+        let cos_theta = theta_rad.cos();
+        let sin_theta = theta_rad.sin();
 
-        let mixed_homo_vec: Vec<f64> = homo_vec.iter().zip(lumo_vec.iter()).map(|(h, l)| (1.0 - ratio) * h + ratio * l).collect();
-        let mixed_lumo_vec: Vec<f64> = homo_vec.iter().zip(lumo_vec.iter()).map(|(h, l)| -ratio * h + (1.0 - ratio) * l).collect();
+        for i_spin in (0..2) {
+            let homo = scf_data.homo[i_spin];
+            let lumo = scf_data.lumo[i_spin];
+            let eigenvector_mut = scf_data.eigenvectors.get_mut(i_spin).unwrap();
+            let homo_vec: Vec<f64> = eigenvector_mut.iter_column(homo).cloned().collect();
+            let lumo_vec: Vec<f64> = eigenvector_mut.iter_column(lumo).cloned().collect();
 
-        let mut homo_col = eigenvector_mut.iter_column_mut(homo);
-        let norm_homo = mixed_homo_vec.iter().map(|x| x * x).sum::<f64>().sqrt();
-        for (val, slot) in mixed_homo_vec.iter().zip(homo_col.by_ref()) {
-            *slot = *val / norm_homo;
-        }
-        
-        let mut lumo_col = eigenvector_mut.iter_column_mut(lumo);
-        let norm_lumo = mixed_lumo_vec.iter().map(|x| x * x).sum::<f64>().sqrt();
-        for (val, slot) in mixed_lumo_vec.iter().zip(lumo_col.by_ref()) {
-            *slot = *val / norm_lumo;
+            let (mixed_homo_vec, mixed_lumo_vec) = if i_spin == 0 {
+                (
+                    homo_vec.iter().zip(&lumo_vec).map(|(h, l)| cos_theta * h + sin_theta * l).collect::<Vec<f64>>(),
+                    homo_vec.iter().zip(&lumo_vec).map(|(h, l)| -sin_theta * h + cos_theta * l).collect::<Vec<f64>>(),
+                )
+            } else {
+                (
+                    homo_vec.iter().zip(&lumo_vec).map(|(h, l)| cos_theta * h - sin_theta * l).collect::<Vec<f64>>(),
+                    homo_vec.iter().zip(&lumo_vec).map(|(h, l)|  sin_theta * h + cos_theta * l).collect::<Vec<f64>>(),
+                )
+            };
+
+            let mut homo_col = eigenvector_mut.iter_column_mut(homo);
+            for (val, slot) in mixed_homo_vec.iter().zip(homo_col.by_ref()) {
+                *slot = *val;
+            }
+            let mut lumo_col = eigenvector_mut.iter_column_mut(lumo);
+            for (val, slot) in mixed_lumo_vec.iter().zip(lumo_col.by_ref()) {
+                *slot = *val;
+            }
         }
     }
 
