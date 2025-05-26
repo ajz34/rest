@@ -220,6 +220,8 @@ pub struct InputKeywords {
     /// This option is only for single-node computation, and only works in some cases where algorithm awares memory usage and perform batched computation.
     /// For multi-node (MPI), this keyword is not fully discussed.
     pub max_memory: Option<f64>,
+    pub guess_mix: bool,
+    pub guess_mix_theta_deg: f64
 }
 
 impl InputKeywords {
@@ -332,6 +334,8 @@ impl InputKeywords {
             rpa_de_excitation_parameters: None,
             pt2_mpi_mode: 0,
             max_memory: None,
+            guess_mix: false,
+            guess_mix_theta_deg: 15.0
         }
     }
 
@@ -949,44 +953,107 @@ impl InputKeywords {
                     serde_json::Value::Number(tmp_num) => {tmp_num.as_f64().unwrap_or(1.0e-3)},
                     other => {1.0e-3}
                 };
-                tmp_input.force_state_occupation= match tmp_ctrl.get("force_state_occupation").unwrap_or(&serde_json::Value::Null) {
-                    serde_json::Value::String(tmp_op) => {vec![]},
+                tmp_input.force_state_occupation = match tmp_ctrl.get("force_state_occupation").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(_) => vec![],
                     serde_json::Value::Array(tmp_op) => {
-                        let mut tmp_vec:Vec<ForceStateOccupation> = vec![];
+                        let mut tmp_vec: Vec<ForceStateOccupation> = vec![];
                         tmp_op.iter().for_each(|x| {
                             let tmp_obj = match x {
                                 serde_json::Value::Array(tmp_value) => {
-                                        // by default, the reference state is the previous SCF converged one
-                                        if tmp_value.len() == 5 {
-                                        let prev_state: usize = tmp_value[0].as_u64().unwrap_or(0) as usize;
-                                        let prev_spin: usize = tmp_value[1].as_u64().unwrap_or(0) as usize;
-                                        let force_occ: f64 = tmp_value[2].as_f64().unwrap_or(0.0);
-                                        let force_check_min: usize = tmp_value[3].as_u64().unwrap_or(0) as usize;
-                                        let force_check_max: usize = tmp_value[4].as_u64().unwrap_or(0) as usize;
-                                        Some(ForceStateOccupation::init(tmp_input.chkfile.clone(), prev_state, prev_spin, force_occ, force_check_min, force_check_max))
-                                    } else if tmp_value.len() == 6 {
-                                        let ref_index: String = tmp_value[0].as_str().unwrap_or("none").to_string();
-                                        let prev_state: usize = tmp_value[1].as_u64().unwrap_or(0) as usize;
-                                        let prev_spin: usize = tmp_value[2].as_u64().unwrap_or(0) as usize;
-                                        let force_occ: f64 = tmp_value[3].as_f64().unwrap_or(0.0);
-                                        let force_check_min: usize = tmp_value[4].as_u64().unwrap_or(0) as usize;
-                                        let force_check_max: usize = tmp_value[5].as_u64().unwrap_or(0) as usize;
-                                        Some(ForceStateOccupation::init(ref_index, prev_state, prev_spin, force_occ, force_check_min, force_check_max))
-                                    } else {
-                                        panic!("ERROR:: incorrect force_state_occupation setting: {:?}", &tmp_op);
-                                        None
+                                    match tmp_value.len() {
+                                        5 => {
+                                            // [ref_state, ref_spin, force_occ, min, max]
+                                            let ref_state = tmp_value[0].as_u64().unwrap_or(0) as usize;
+                                            let ref_spin = tmp_value[1].as_u64().unwrap_or(0) as usize;
+                                            let target_spin = ref_spin;
+                                            let force_occ = tmp_value[2].as_f64().unwrap_or(0.0);
+                                            let check_min = tmp_value[3].as_u64().unwrap_or(0) as usize;
+                                            let check_max = tmp_value[4].as_u64().unwrap_or(0) as usize;
+                                            Some(ForceStateOccupation::init(
+                                                tmp_input.chkfile.clone(),
+                                                ref_state,
+                                                ref_spin,
+                                                target_spin,
+                                                force_occ,
+                                                check_min,
+                                                check_max,
+                                            ))
+                                        }
+                                        6 => {
+                                            match &tmp_value[0] {
+                                                serde_json::Value::String(ref reference) => {
+                                                    // ["ref.hdf5", ref_state, ref_spin, force_occ, min, max]
+                                                    let ref_state = tmp_value[1].as_u64().unwrap_or(0) as usize;
+                                                    let ref_spin = tmp_value[2].as_u64().unwrap_or(0) as usize;
+                                                    let target_spin = ref_spin;
+                                                    let force_occ = tmp_value[3].as_f64().unwrap_or(0.0);
+                                                    let check_min = tmp_value[4].as_u64().unwrap_or(0) as usize;
+                                                    let check_max = tmp_value[5].as_u64().unwrap_or(0) as usize;
+                                                    Some(ForceStateOccupation::init(
+                                                        reference.to_string(),
+                                                        ref_state,
+                                                        ref_spin,
+                                                        target_spin,
+                                                        force_occ,
+                                                        check_min,
+                                                        check_max,
+                                                    ))
+                                                }
+                                                _ => {
+                                                    // [ref_state, ref_spin, target_spin, force_occ, min, max]
+                                                    let ref_state = tmp_value[0].as_u64().unwrap_or(0) as usize;
+                                                    let ref_spin = tmp_value[1].as_u64().unwrap_or(0) as usize;
+                                                    let target_spin = tmp_value[2].as_u64().unwrap_or(0) as usize;
+                                                    let force_occ = tmp_value[3].as_f64().unwrap_or(0.0);
+                                                    let check_min = tmp_value[4].as_u64().unwrap_or(0) as usize;
+                                                    let check_max = tmp_value[5].as_u64().unwrap_or(0) as usize;
+                                                    Some(ForceStateOccupation::init(
+                                                        tmp_input.chkfile.clone(),
+                                                        ref_state,
+                                                        ref_spin,
+                                                        target_spin,
+                                                        force_occ,
+                                                        check_min,
+                                                        check_max,
+                                                    ))
+                                                }
+                                            }
+                                        }
+                                        7 => {
+                                            // ["ref.hdf5", ref_state, ref_spin, target_spin, force_occ, min, max]
+                                            let reference = tmp_value[0].as_str().unwrap_or("none").to_string();
+                                            let ref_state = tmp_value[1].as_u64().unwrap_or(0) as usize;
+                                            let ref_spin = tmp_value[2].as_u64().unwrap_or(0) as usize;
+                                            let target_spin = tmp_value[3].as_u64().unwrap_or(0) as usize;
+                                            let force_occ = tmp_value[4].as_f64().unwrap_or(0.0);
+                                            let check_min = tmp_value[5].as_u64().unwrap_or(0) as usize;
+                                            let check_max = tmp_value[6].as_u64().unwrap_or(0) as usize;
+                                            Some(ForceStateOccupation::init(
+                                                reference,
+                                                ref_state,
+                                                ref_spin,
+                                                target_spin,
+                                                force_occ,
+                                                check_min,
+                                                check_max,
+                                            ))
+                                        }
+                                        _ => {
+                                            panic!("ERROR:: incorrect force_state_occupation setting: {:?}", &tmp_value);
+                                        }
                                     }
-                                },
-                                other => None
+                                }
+                                _ => None,
                             };
                             if let Some(tmp_obj) = tmp_obj {
-                                tmp_vec.push(tmp_obj)
+                                tmp_vec.push(tmp_obj);
                             }
                         });
                         tmp_vec
-                    },
-                    other => {vec![]},
+                    }
+                    _ => vec![],
                 };
+
                 //
                 tmp_input.auxiliary_reference_states = match tmp_ctrl.get("auxiliary_reference_states").unwrap_or(&serde_json::Value::Null) {
                     serde_json::Value::String(tmp_chk) => vec![(String::from("none"),0)],
@@ -1096,6 +1163,19 @@ impl InputKeywords {
                 tmp_input.max_memory = match tmp_ctrl.get("max_memory").unwrap_or(&serde_json::Value::Null) {
                     serde_json::Value::Number(tmp_num) => Some(tmp_num.as_f64().unwrap()),
                     other => None,
+                };
+                
+                // for guess_mix setting
+                tmp_input.guess_mix = match tmp_ctrl.get("guess_mix").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Bool(tmp_bool) => *tmp_bool,
+                    serde_json::Value::String(tmp_str) => tmp_str.to_lowercase().parse().unwrap_or(false),
+                    _ => false,
+                };
+                
+                tmp_input.guess_mix_theta_deg = match tmp_ctrl.get("guess_mix_theta_deg").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::Number(tmp_num) => tmp_num.as_f64().unwrap_or(15.0),
+                    serde_json::Value::String(tmp_str) => tmp_str.to_lowercase().parse().unwrap_or(15.0),
+                    _ => 15.0,
                 };
 
                 //===========================================================
@@ -1406,6 +1486,9 @@ pub fn overall_parse_and_report_on_ctrl_geom(ctrl: &mut InputKeywords, geom: &mu
             println!("The initial guess is obtained from the specified file \n({})", &ctrl.guessfile);
         }
 
+        if ctrl.guess_mix {
+            println!("Initial guess mixing enabled (theta = {:.1}°): HOMO-LUMO rotated to induce symmetry breaking",ctrl.guess_mix_theta_deg);
+        }
 
     }
     println!("=========================================================");
