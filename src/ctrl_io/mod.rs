@@ -221,7 +221,8 @@ pub struct InputKeywords {
     /// For multi-node (MPI), this keyword is not fully discussed.
     pub max_memory: Option<f64>,
     pub guess_mix: bool,
-    pub guess_mix_theta_deg: f64
+    pub guess_mix_theta_deg: f64,
+    pub spin_correction_scheme: Option<String>
 }
 
 impl InputKeywords {
@@ -335,7 +336,8 @@ impl InputKeywords {
             pt2_mpi_mode: 0,
             max_memory: None,
             guess_mix: false,
-            guess_mix_theta_deg: 15.0
+            guess_mix_theta_deg: 15.0,
+            spin_correction_scheme: None
         }
     }
 
@@ -1176,6 +1178,10 @@ impl InputKeywords {
                     serde_json::Value::Number(tmp_num) => tmp_num.as_f64().unwrap_or(15.0),
                     serde_json::Value::String(tmp_str) => tmp_str.to_lowercase().parse().unwrap_or(15.0),
                     _ => 15.0,
+                };
+                tmp_input.spin_correction_scheme = match tmp_ctrl.get("spin_correction_scheme").unwrap_or(&serde_json::Value::Null) {
+                    serde_json::Value::String(tmp_emp) => {Some(tmp_emp.to_lowercase())},
+                    other => {None},
                 };
 
                 //===========================================================

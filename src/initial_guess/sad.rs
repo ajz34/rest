@@ -20,8 +20,11 @@ pub fn initial_guess_from_sad(mol: &Molecule, mpi_operator: &Option<MPIOperator>
     mol.geom.elem.iter().for_each(|ielem| {
         if let None = &mut atom_dms.get(&ielem.clone()) {
 
-
-            if mol.ctrl.print_level>0 {println!("Generate SAD of {}", &ielem)};
+            if mol.ctrl.print_level > 0 {
+                println!("\n=======================");
+                println!("Generating SAD for atom: {}", &ielem);
+                println!("=======================\n");
+            }
 
             //elem_name.push(ielem.to_string());
 
@@ -84,6 +87,10 @@ pub fn initial_guess_from_sad(mol: &Molecule, mpi_operator: &Option<MPIOperator>
             }
 
             atom_dms.insert(ielem.clone(),dms);
+            
+            if mol.ctrl.print_level > 0 {
+                println!("SAD generation for {} complete.\n", &ielem);
+            }
         }
     });
 
