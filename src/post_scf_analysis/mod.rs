@@ -210,7 +210,7 @@ pub fn save_chkfile(scf_data: &SCF) {
     let mut eigenvalues: Vec<f64> = vec![];
     for i_spin in 0..scf_data.mol.spin_channel {
         eigenvalues.extend(scf_data.eigenvalues[i_spin].iter());
-        if let SCFType::ROHF = scf_data.scftype { /// ROHF: only process i_spin = 0, since alpha/beta eigenvalues are the same
+        if let SCFType::ROHF = scf_data.scftype { // ROHF: only process i_spin = 0, since alpha/beta eigenvalues are the same
             break 
         }
     }
