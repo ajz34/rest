@@ -4232,7 +4232,7 @@ pub fn scf(mol:Molecule, mpi_operator: &Option<MPIOperator>) -> anyhow::Result<S
 
     let dt2 = time::Local::now();
     if scf_data.mol.ctrl.print_level>0 {
-        println!("the job spends {:16.2} seconds",(dt2.timestamp_millis()-dt0.timestamp_millis()) as f64 /1000.0)
+        println!("the job costs {:16.2} seconds",(dt2.timestamp_millis()-dt0.timestamp_millis()) as f64 /1000.0)
     };
 
     //if scf_data.empirical_dispersion_energy != 0.0 {
