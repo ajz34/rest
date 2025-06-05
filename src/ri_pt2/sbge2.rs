@@ -7,7 +7,7 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use tensors::{MatrixFull,matrix_blas_lapack::_dgemm, TensorOpt, BasicMatrix};
 
 use crate::{mpi_io::{mpi_broadcast, mpi_broadcast_matrixfull, mpi_broadcast_vector, mpi_reduce, MPIData,MPIOperator}, utilities};
-
+use crate::scf_io::SCFType;
 pub fn close_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow::Result<([f64;3],[MatrixFull<(f64,f64)>;3])> {
 //pub fn close_shell_sbge2_rayon(scf_data: &crate::scf_io::SCF) -> anyhow::Result<[f64;3]> {
 
@@ -386,8 +386,12 @@ pub fn open_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow:
             if i_spin_1 == i_spin_2 {
 
                 let i_spin = i_spin_1;
-                let eigenvector = scf_data.eigenvectors.get(i_spin).unwrap();
-                let eigenvalues = scf_data.eigenvalues.get(i_spin).unwrap();
+                let eigenvector = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvectors.get(i_spin).unwrap(),
+                    SCFType::ROHF => scf_data.semi_eigenvectors.get(i_spin).unwrap() 
+                };
+                let eigenvalues = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvalues.get(i_spin).unwrap(),
+                    SCFType::ROHF => scf_data.semi_eigenvalues.get(i_spin).unwrap() 
+                };
                 let occupation = scf_data.occupation.get(i_spin).unwrap();
 
                 let homo = scf_data.homo[i_spin].clone();
@@ -501,8 +505,12 @@ pub fn open_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow:
 
 
             } else {
-                let eigenvector_1 = scf_data.eigenvectors.get(i_spin_1).unwrap();
-                let eigenvalues_1 = scf_data.eigenvalues.get(i_spin_1).unwrap();
+                let eigenvector_1 = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvectors.get(i_spin_1).unwrap(),
+                    SCFType::ROHF => scf_data.semi_eigenvectors.get(i_spin_1).unwrap()
+                };
+                let eigenvalues_1 = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvalues.get(i_spin_1).unwrap(),
+                    SCFType::ROHF => scf_data.semi_eigenvalues.get(i_spin_1).unwrap() 
+                };
                 let occupation_1 = scf_data.occupation.get(i_spin_1).unwrap();
                 let homo_1 = scf_data.homo.get(i_spin_1).unwrap().clone();
                 let lumo_1 = scf_data.lumo.get(i_spin_1).unwrap().clone();
@@ -511,8 +519,12 @@ pub fn open_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow:
                 let (rimo_1, vir_range, occ_range) = &ri3mo_vec[i_spin_1];
                 let lumo_min = vir_range.start;
 
-                let eigenvector_2 = scf_data.eigenvectors.get(i_spin_2).unwrap();
-                let eigenvalues_2 = scf_data.eigenvalues.get(i_spin_2).unwrap();
+                let eigenvector_2 = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvectors.get(i_spin_2).unwrap(),
+                    SCFType::ROHF => scf_data.semi_eigenvectors.get(i_spin_2).unwrap()
+                };
+                let eigenvalues_2 = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvalues.get(i_spin_2).unwrap(),
+                    SCFType::ROHF => scf_data.semi_eigenvalues.get(i_spin_2).unwrap()
+                };
                 let occupation_2 = scf_data.occupation.get(i_spin_2).unwrap();
                 let homo_2 = scf_data.homo.get(i_spin_2).unwrap().clone();
                 let lumo_2 = scf_data.lumo.get(i_spin_2).unwrap().clone();

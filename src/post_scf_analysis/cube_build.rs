@@ -153,7 +153,10 @@ pub fn get_cube_orb(scf_data:&SCF) -> [MatrixFull<f64>;2]{
     for i_spin in 0..spin_channel {
 
         let orb_indices_s = &orb_indices_2[i_spin];
-
+        if orb_indices_s.is_empty() {
+            break
+        }
+        
         prod[i_spin] = MatrixFull::new([ao.size[0],scf_data.eigenvectors[i_spin].size[1]],0.0);
         _dgemm_full(&ao, 'N', &scf_data.eigenvectors[i_spin], 'N', &mut prod[i_spin], 1.0, 0.0);
     

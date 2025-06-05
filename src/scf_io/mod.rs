@@ -13,7 +13,7 @@ mod pyrest_scf_io;
 
 use mpi::collective::SystemOperation;
 use pyo3::{pyclass, pymethods, pyfunction};
-use tensors::matrix_blas_lapack::{_dgemm, _dgemm_full, _dgemm_nn, _dgemv, _dinverse, _dspgvx, _dsymm, _dsyrk, _hamiltonian_fast_solver, _power, _power_rayon_for_symmetric_matrix};
+use tensors::matrix_blas_lapack::{_dgemm, _dgemm_full, _dgemm_nn, _dgemv, _dinverse, _dspgvx, _dsymm, _dsyrk, _hamiltonian_fast_solver, _power, _power_rayon_for_symmetric_matrix, _dsyevd};
 use tensors::{map_full_to_upper, map_upper_to_full, ri, BasicMatUp, BasicMatrix, ERIFold4, ERIFull, MathMatrix, MatrixFull, MatrixFullSlice, MatrixFullSliceMut, MatrixUpper, MatrixUpperSlice, ParMathMatrix, RIFull, TensorSliceMut};
 use itertools::{Itertools, iproduct, izip};
 use rayon::prelude::*;
@@ -59,6 +59,10 @@ pub struct SCF {
     pub density_matrix: Vec<MatrixFull<f64>>,
     //pub hamiltonian: Vec<Tensors<f64>>,
     pub hamiltonian: [MatrixUpper<f64>;2],
+    pub roothaan_hamiltonian: MatrixUpper<f64>,
+    pub semi_eigenvalues: [Vec<f64>;2],
+    pub semi_eigenvectors: [MatrixFull<f64>;2],
+    pub semi_fock: [MatrixFull<f64>;2],
     pub scftype: SCFType,
     #[pyo3(get,set)]
     pub occupation: [Vec<f64>;2],
@@ -100,6 +104,10 @@ impl SCF {
             eigenvalues: [vec![],vec![]],
             hamiltonian: [MatrixUpper::empty(),
                           MatrixUpper::empty()],
+            roothaan_hamiltonian: MatrixUpper::empty(),
+            semi_eigenvalues: [vec![],vec![]],
+            semi_eigenvectors: [MatrixFull::empty(), MatrixFull::empty()],
+            semi_fock: [MatrixFull::empty(), MatrixFull::empty()],
             eigenvectors: [MatrixFull::empty(),
                            MatrixFull::empty()],
             ref_eigenvectors: HashMap::new(),
@@ -130,12 +138,13 @@ impl SCF {
             SCFType::RHF => {
                 if mol.ctrl.print_level>0 {println!("Restricted Hartree-Fock (or Kohn-Sham) algorithm is invoked.")}},
             SCFType::ROHF => {
-                if mol.ctrl.print_level>0 {println!("Restricted-orbital Hartree-Fock (or Kohn-Sham) algorithm is invoked.")};
+                if mol.ctrl.print_level>0 {println!("Restricted open shell Hartree-Fock (or Kohn-Sham) algorithm is invoked.")};
+                // In ROHF, although the Roothaan Fock matrix is not separated into alpha and beta spin channels, 
+                // it is derived based on the density matrices of the alpha and beta spin channels. 
+                // Therefore, even though "spin_polarization=False" is specified as input, we handle it as "spin_channel=2".
                 scf_data.mol.ctrl.spin_channel=2;
                 scf_data.mol.spin_channel=2;
-                if mol.ctrl.print_level>0 {
-                    panic!("Restricted-orbital Hartree-Fock (or Kohn-Sham) algorithm is invoked, which, however, is not yet stable.")
-                };
+                scf_data.mol.xc_data.spin_channel=2;
             },
             SCFType::UHF => {
                 if mol.ctrl.print_level>0 {println!("Unrestricted Hartree-Fock (or Kohn-Sham) algorithm is invoked.")}
@@ -1560,6 +1569,10 @@ impl SCF {
                                 *h_ij += vk_ij
                             });
         };
+
+        if let SCFType::ROHF = self.scftype {
+            self.roothaan_hamiltonian = self.generate_roothaan_fock();
+        }
     }
     pub fn generate_hf_hamiltonian_ri_v(&mut self, mpi_operator: &Option<MPIOperator>) {
         let num_basis = self.mol.num_basis;
@@ -1617,6 +1630,10 @@ impl SCF {
                                 *h_ij += vk_ij
                             });
         };
+
+        if let SCFType::ROHF = self.scftype {
+            self.roothaan_hamiltonian = self.generate_roothaan_fock();
+        }
     }
     pub fn generate_hf_hamiltonian_ri_v_dm_only(&mut self, mpi_operator: &Option<MPIOperator>) {
         let num_basis = self.mol.num_basis;
@@ -1663,6 +1680,10 @@ impl SCF {
                                 *h_ij += vk_ij
                             });
         };
+
+        if let SCFType::ROHF = self.scftype {
+            self.roothaan_hamiltonian = self.generate_roothaan_fock();
+        }
     }
 
     pub fn generate_ks_hamiltonian_erifold4(&mut self) -> (f64,f64) {
@@ -1738,6 +1759,10 @@ impl SCF {
             println!("The evaluation of Vj, Vk and Vxc matrices cost {:10.2}, {:10.2} and {:10.2} seconds, respectively",
                       timecost1,timecost2, timecost3);
         };
+
+        if let SCFType::ROHF = self.scftype {
+            self.roothaan_hamiltonian = self.generate_roothaan_fock();
+        }
         (exc_total, vxc_total)
 
     }
@@ -1828,6 +1853,15 @@ impl SCF {
         };
 
         let dt4 = time::Local::now();
+
+        if let SCFType::ROHF = self.scftype {
+            self.roothaan_hamiltonian = self.generate_roothaan_fock();
+            let dt5 = time::Local::now();
+            let timecost4 = (dt5.timestamp_millis()-dt4.timestamp_millis()) as f64 /1000.0;
+            if self.mol.ctrl.print_level > 2 {
+                println!("The evaluation of Roothaan effective Fock Matrix costs {:10.2} seconds.", timecost4);
+            }
+        }
         
         let timecost1 = (dt2.timestamp_millis()-dt1.timestamp_millis()) as f64 /1000.0;
         let timecost2 = (dt3.timestamp_millis()-dt2.timestamp_millis()) as f64 /1000.0;
@@ -2080,6 +2114,54 @@ impl SCF {
          
     }
 
+        pub fn generate_roothaan_fock(&self) -> MatrixUpper<f64> {
+        //generate Roothaan's effective Fock matrix
+        // ======== ======== ====== =========
+        // space     closed   open   virtual
+        // ======== ======== ====== =========
+        // closed      Fc      Fb     Fc
+        // open        Fb      Fc     Fa
+        // virtual     Fc      Fa     Fc
+        // ======== ======== ====== =========
+        // where Fc = (Fa + Fb) / 2, Roothaan's Fock matrix for core
+        let num_basis = self.mol.num_basis;
+
+        let hamiltonian_a: MatrixFull<f64> = self.hamiltonian[0].to_matrixfull().unwrap();
+        let hamiltonian_b: MatrixFull<f64> = self.hamiltonian[1].to_matrixfull().unwrap();
+        let hamiltonian_c: MatrixFull<f64> = (hamiltonian_a.clone() + hamiltonian_b.clone()) * 0.5;
+
+        // Projector for core, open-shell, and virtual space
+        // pc = dm_b * ovlp
+        // po = (dm_a - dm_b) * ovlp
+        // pv = eye - dm_a * ovlp
+        let mut pc = MatrixFull::new([num_basis, num_basis], 0.0);
+        let mut po = MatrixFull::new([num_basis, num_basis], 0.0);
+        let mut pv = MatrixFull::new([num_basis, num_basis], 0.0);
+        let ovlp_full = self.ovlp.to_matrixfull().unwrap();
+        
+        //_dgemm(&self.density_matrix[1], (0..num_basis,0..num_basis), 'N', &ovlp_full, (0..num_basis,0..num_basis), 'N', &mut pc, (0..num_basis,0..num_basis), 1.0, 0.0);
+        _dsymm(&self.density_matrix[1], &ovlp_full, &mut pc, 'L', 'U', 1.0, 0.0);
+        
+        let dm_o = self.density_matrix[0].clone() - self.density_matrix[1].clone();
+        //_dgemm(&dm_o, (0..num_basis,0..num_basis), 'N', &ovlp_full, (0..num_basis,0..num_basis), 'N', &mut po, (0..num_basis,0..num_basis), 1.0, 0.0);
+        _dsymm(&dm_o, &ovlp_full, &mut po, 'L', 'U', 1.0, 0.0);
+        
+        pv.iter_diagonal_mut().unwrap().for_each(|x| *x = 1.0);
+        //_dgemm(&self.density_matrix[0], (0..num_basis,0..num_basis), 'N', &ovlp_full, (0..num_basis,0..num_basis), 'N', &mut pv, (0..num_basis,0..num_basis), -1.0, 1.0);
+        _dsymm(&self.density_matrix[0], &ovlp_full, &mut pv, 'L', 'U', -1.0, 1.0);
+        
+        let mut roothaan_fock = MatrixFull::new([num_basis, num_basis], 0.0);
+        roothaan_fock += apply_projection_operator(&pc, &hamiltonian_c, &pc) * 0.5;
+        roothaan_fock += apply_projection_operator(&po, &hamiltonian_c, &po) * 0.5;
+        roothaan_fock += apply_projection_operator(&pv, &hamiltonian_c, &pv) * 0.5;
+        roothaan_fock += apply_projection_operator(&po, &hamiltonian_b, &pc);
+        roothaan_fock += apply_projection_operator(&po, &hamiltonian_a, &pv);
+        roothaan_fock += apply_projection_operator(&pv, &hamiltonian_c, &pc);
+        roothaan_fock = roothaan_fock.clone() + roothaan_fock.transpose();
+        
+        roothaan_fock.to_matrixupper()
+    }
+
     pub fn evaluate_energy_components(&self, mpi_operator: &Option<MPIOperator>) -> Vec<f64> {
         /// 1. the ordering is given by E_noXC, Ex_HF, and a sequence of DFA components in self.xc_data.dfa_compnt_scf
         /// 2. this function should be invoked after generate_hf_hamiltonian()
@@ -2194,6 +2276,10 @@ impl SCF {
         (self.eigenvectors, self.eigenvalues, self.mol.num_state) = diagonalize_hamiltonian_outside(&self, mpi_operator);
     }
 
+    pub fn semi_diagonalize_hamiltonian(&mut self) {
+        (self.semi_eigenvectors, self.semi_eigenvalues, self.semi_fock, self.mol.num_state) = semi_diagonalize_hamiltonian_outside(&self);
+    }
+
     pub fn check_scf_convergence(&self, scftracerecode: &ScfTraceRecord) -> [bool;2] {
         if scftracerecode.num_iter<2 {
             return [false,false]
@@ -2274,46 +2360,68 @@ impl SCF {
     pub fn formated_eigenvalues(&self,num_state_to_print:usize) {
         let mut cur_num_state_to_print = 0;
         let spin_channel = self.mol.spin_channel;
-        if spin_channel==1 {
-            println!("{:>8}{:>14}{:>18}",String::from("State"),
+        match self.scftype {
+            SCFType::RHF => {
+                println!("{:>8}{:>14}{:>18}",String::from("State"),
                                         String::from("Occupation"),
                                         String::from("Eigenvalue"));
-            if self.occupation[0].len() < num_state_to_print {
-                cur_num_state_to_print = self.eigenvalues[0].len();
-            } else {
-                cur_num_state_to_print = num_state_to_print;
-            }
-            for i_state in (0..cur_num_state_to_print) {
-                println!("{:>8}{:>14.5}{:>18.6}",i_state,self.occupation[0][i_state],self.eigenvalues[0][i_state]);
-            }
-        } else {
-            for i_spin in (0..spin_channel) {
-                if i_spin == 0 {
-                    println!("Spin-up eigenvalues");
-                    println!(" ");
-                } else {
-                    println!(" ");
-                    println!("Spin-down eigenvalues");
-                    println!(" ");
-                }
-                println!("{:>8}{:>14}{:>18}",String::from("State"),
-                                            String::from("Occupation"),
-                                            String::from("Eigenvalue"));
-                if self.occupation[i_spin].len() < num_state_to_print {
-                    cur_num_state_to_print = self.eigenvalues[i_spin].len();
-                    println!("the number of eigenvalues in {} spin channel is {}", i_spin, self.occupation[i_spin].len());
+                if self.occupation[0].len() < num_state_to_print {
+                    cur_num_state_to_print = self.eigenvalues[0].len();
                 } else {
                     cur_num_state_to_print = num_state_to_print;
-                    for i_state in (0..cur_num_state_to_print) {
-                        println!("{:>8}{:>14.5}{:>18.6}",i_state,self.occupation[i_spin][i_state],self.eigenvalues[i_spin][i_state]);
+                }
+                for i_state in (0..cur_num_state_to_print) {
+                    println!("{:>8}{:>14.5}{:>18.6}",i_state,self.occupation[0][i_state],self.eigenvalues[0][i_state]);
+                }
+            },
+            SCFType::UHF => {
+                for i_spin in (0..spin_channel) {
+                    if i_spin == 0 {
+                        println!("Spin-up eigenvalues");
+                        println!(" ");
+                    } else {
+                        println!(" ");
+                        println!("Spin-down eigenvalues");
+                        println!(" ");
                     }
+                    println!("{:>8}{:>14}{:>18}",String::from("State"),
+                                                String::from("Occupation"),
+                                                String::from("Eigenvalue"));
+                    if self.occupation[i_spin].len() < num_state_to_print {
+                        cur_num_state_to_print = self.eigenvalues[i_spin].len();
+                        println!("the number of eigenvalues in {} spin channel is {}", i_spin, self.occupation[i_spin].len());
+                    } else {
+                        cur_num_state_to_print = num_state_to_print;
+                        for i_state in (0..cur_num_state_to_print) {
+                            println!("{:>8}{:>14.5}{:>18.6}",i_state,self.occupation[i_spin][i_state],self.eigenvalues[i_spin][i_state]);
+                        }
+                    }
+                }
+            },
+            SCFType::ROHF => {
+                println!("{:>8}{:>14}{:>18}",String::from("State"),
+                                        String::from("Occupation"),
+                                        String::from("Eigenvalue"));
+                // combine the occ numbers of alpha and beta channel
+                let combined_occupation: Vec<f64> =  self.occupation[0]
+                                                        .iter()
+                                                        .zip(self.occupation[1].iter())
+                                                        .map(|(a, b)| a + b)
+                                                        .collect();
+                if combined_occupation.len() < num_state_to_print {
+                    cur_num_state_to_print = combined_occupation.len();
+                } else {
+                    cur_num_state_to_print = num_state_to_print;
+                }
+                for i_state in (0..cur_num_state_to_print) {
+                    println!("{:>8}{:>14.5}{:>18.6}",i_state,combined_occupation[i_state],self.eigenvalues[0][i_state]);
                 }
             }
         }
     }
     pub fn formated_eigenvectors(&self) {
         let spin_channel = self.mol.spin_channel;
-        if spin_channel==1 {
+        if spin_channel==1 || matches!(&self.scftype, SCFType::ROHF){
             self.eigenvectors[0].formated_output(5, "full");
         } else {
             (0..spin_channel).into_iter().for_each(|i_spin|{
@@ -2774,6 +2882,10 @@ impl SCF {
     }
 
     pub fn generate_ri3mo_rayon(&mut self, row_range: std::ops::Range<usize>, col_range: std::ops::Range<usize>) {
+        if let SCFType::ROHF = self.scftype { //in ROHF case, generate semi-canonical eigenvectors for post SCF calculations.
+            self.semi_diagonalize_hamiltonian(); 
+        }
+
         let (mut ri3ao, mut basbas2baspair, mut baspar2basbas) =  if let Some((riao,basbas2baspair, baspar2basbas))=&mut self.rimatr {
             (riao,basbas2baspair, baspar2basbas)
         } else {
@@ -2781,7 +2893,10 @@ impl SCF {
         };
         let mut ri3mo: Vec<(RIFull<f64>,std::ops::Range<usize>, std::ops::Range<usize>)> = vec![];
         for i_spin in 0..self.mol.spin_channel {
-            let eigenvector = &self.eigenvectors[i_spin];
+            let eigenvector = match self.scftype {
+                SCFType::ROHF => &self.semi_eigenvectors[i_spin],
+                _ => &self.eigenvectors[i_spin],
+            };
             ri3mo.push(
                 ao2mo_rayon(
                     eigenvector, ri3ao, 
@@ -2816,6 +2931,39 @@ impl SCF {
 
     }
 
+}
+
+/// Applies a projection operator to a given matrix. Specifically, it calculates the
+/// product \( a^T \cdot b \cdot c \), where \( a \), \( b \), and \( c \) are input matrices.
+///
+/// # Arguments
+/// * `a` - The first matrix (used as a transpose in the calculation).
+/// * `b` - The second matrix.
+/// * `c` - The third matrix.
+/// * `size` - The size of the matrices.
+///
+/// # Returns
+/// A new matrix that represents the result of \( a^T \cdot b \cdot c \).
+///
+/// # Example
+/// ```
+/// let a = MatrixFull::new([size, size], ...);
+/// let b = MatrixFull::new([size, size], ...);
+/// let c = MatrixFull::new([size, size], ...);
+/// let result = apply_projection_operator(&a, &b, &c, size);
+/// ```
+pub fn apply_projection_operator(a: &MatrixFull<f64>, b: &MatrixFull<f64>, c: &MatrixFull<f64>) -> MatrixFull<f64> {
+    // Temporary matrix to store intermediate result of a^T * b
+    let mut temp: MatrixFull<f64> = MatrixFull::new([a.size[1], b.size[1]], 0.0);
+    
+    // First multiplication: a^T * b
+    _dgemm_full(a, 'T', b,  'N', &mut temp, 1.0, 0.0);
+    
+    // Second multiplication: (a^T * b) * c
+    let mut final_result: MatrixFull<f64> = MatrixFull::new([a.size[1], c.size[1]], 0.0);
+    _dgemm_full(&temp, 'N', c, 'N', &mut final_result, 1.0, 0.0);
+    
+    final_result
 }
 
 
@@ -3559,7 +3707,11 @@ pub fn vk_upper_with_rimatr_sync_v03(
         for i_spin in 0..spin_channel {
             let mut vk_s = &mut vk[i_spin];
             *vk_s = MatrixUpper::new(num_baspair,0.0_f64);
-            let eigv_s = &eigv[i_spin];
+            let eigv_s = if !eigv[i_spin].data.is_empty() {
+                &eigv[i_spin]
+            } else { // use the eigv[0] again for ROHF case.
+                &eigv[0]
+            };
             // now locate the highest obital that has electron with occupation largger than 1.0e-4
             let homo_s = occupation[i_spin].iter().enumerate()
                 .fold(0_usize,|x, (ob, occ)| {if *occ>1.0e-4 {ob} else {x}});
@@ -3948,22 +4100,30 @@ impl ScfTraceRecord {
         // now consider if level_shift is applied
         // at present only a constant level shift is implemented for both spin channels and for the whole SCF procedure
         if let Some(level_shift) = scf.mol.ctrl.level_shift {
-
-            if scf.mol.spin_channel == 1 {
-                let mut fock = scf.hamiltonian.get_mut(0).unwrap();
-                let ovlp = &scf.ovlp;
-                let dm = scf.density_matrix.get(0).unwrap();
-                let dm_scaling_factor = 0.5;
-                level_shift_fock(fock, ovlp, level_shift, dm, dm_scaling_factor)
-            } else {
-                for i_spin in 0..scf.mol.spin_channel {
-                    let mut fock = scf.hamiltonian.get_mut(i_spin).unwrap();
-                    let ovlp = &scf.ovlp;
-                    let dm = scf.density_matrix.get(i_spin).unwrap();
-                    let dm_scaling_factor = 1.0;
-                    level_shift_fock(fock, ovlp, level_shift, dm, dm_scaling_factor)
+            let ovlp = &scf.ovlp;
+            let dm_scaling_factor = match scf.scftype {
+                SCFType::RHF | SCFType::ROHF=> 0.5,
+                SCFType::UHF => 1.0,
+                };
+                match scf.scftype {
+                    SCFType::RHF => {
+                        let mut fock = scf.hamiltonian.get_mut(0).unwrap();
+                        let dm = scf.density_matrix.get(0).unwrap();
+                        level_shift_fock(fock, ovlp, level_shift, dm, dm_scaling_factor);
+                    },
+                    SCFType::UHF => {
+                        for i_spin in 0..scf.mol.spin_channel {
+                            let mut fock = scf.hamiltonian.get_mut(i_spin).unwrap();
+                            let dm = scf.density_matrix.get(i_spin).unwrap();
+                            level_shift_fock(fock, ovlp, level_shift, dm, dm_scaling_factor);
+                        }
+                    },
+                    SCFType::ROHF => {
+                        let mut fock = &mut scf.roothaan_hamiltonian;
+                        let dm = scf.density_matrix[0].clone() + scf.density_matrix[1].clone();
+                        level_shift_fock(fock, ovlp, level_shift, &dm, dm_scaling_factor);
+                    }
                 }
-            }
         }
     }
 }
@@ -4233,10 +4393,7 @@ pub fn diagonalize_hamiltonian_outside_fast(scf_data: &SCF)  -> ([MatrixFull<f64
     let mut eigenvalues = [Vec::new(),Vec::new()];
 
     match scf_data.scftype {
-        SCFType::ROHF => {
-            panic!("ROHF is not yet implemented")
-        },
-        _ => {
+        SCFType::RHF | SCFType::UHF => {
             for i_spin in (0..spin_channel) {
                 let (eigenvector_spin, eigenvalue_spin)=
                     _hamiltonian_fast_solver(&scf_data.hamiltonian[i_spin], &scf_data.ovlp, &mut num_state).unwrap();
@@ -4245,6 +4402,13 @@ pub fn diagonalize_hamiltonian_outside_fast(scf_data: &SCF)  -> ([MatrixFull<f64
                 eigenvectors[i_spin] = eigenvector_spin;
                 eigenvalues[i_spin] = eigenvalue_spin;
             }
+        },
+        SCFType::ROHF => {
+            // diagonalize Roothaan Fock matrix
+            let (eigenvector, eigenvalue)=
+                _hamiltonian_fast_solver(&scf_data.roothaan_hamiltonian, &scf_data.ovlp, &mut num_state).unwrap();
+            eigenvectors[0] = eigenvector;
+            eigenvalues[0] = eigenvalue;
         }
     };
     (eigenvectors, eigenvalues, num_state)
@@ -4262,21 +4426,16 @@ pub fn diagonalize_hamiltonian_outside_rayon(scf_data: &SCF) -> ([MatrixFull<f64
 
     match scf_data.scftype {
         SCFType::ROHF => {
-            panic!("ROHF is not yet implemented");
-            //let (eigenvector_spin, eigenvalue_spin, num_state_out)=
-            //    _dspgvx(&scf_data.hamiltonian[0], &scf_data.ovlp, num_state).unwrap();
-            //    //self.hamiltonian[0].to_matrixupperslicemut()
-            //    //.lapack_dspgvx(self.ovlp.to_matrixupperslicemut(),num_state).unwrap();
-            ////self.eigenvectors[0] = eigenvector_spin;
-            ////self.eigenvalues[0] = eigenvalue_spin;
-            ////self.eigenvectors[1] = self.eigenvectors[0].clone();
-            ////self.eigenvalues[1] = self.eigenvalues[0].clone();
-            //eigenvectors[0] = eigenvector_spin;
-            //eigenvectors[1] = eigenvectors[0].clone();
-            //eigenvalues[0] = eigenvalue_spin;
-            //eigenvalues[1] = eigenvalues[0].clone();
+            // diagonalize Roothaan Fock matrix
+            let (eigenvector, eigenvalue, tmp_num_state_out)=
+                _dspgvx(&scf_data.roothaan_hamiltonian, &scf_data.ovlp, num_state).unwrap();
+            eigenvectors[0] = eigenvector;
+            eigenvalues[0] = eigenvalue;
+            if tmp_num_state_out < num_state_out {
+                num_state_out = tmp_num_state_out;
+            }
         },
-        _ => {
+        SCFType::RHF | SCFType::UHF => {
             for i_spin in (0..spin_channel) {
                 let (eigenvector_spin, eigenvalue_spin, tmp_num_state_out)=
                     _dspgvx(&scf_data.hamiltonian[i_spin], &scf_data.ovlp, num_state).unwrap();
@@ -4292,6 +4451,62 @@ pub fn diagonalize_hamiltonian_outside_rayon(scf_data: &SCF) -> ([MatrixFull<f64
     }
 
     (eigenvectors,eigenvalues, num_state_out)
+}
+
+pub fn semi_diagonalize_hamiltonian_outside(scf_data: &SCF) -> ([MatrixFull<f64>; 2], [Vec<f64>; 2], [MatrixFull<f64>; 2], usize) {
+    // get the semi-canonical orbitals for RO-xDH calculations
+    // See Knowles et al., Chem. Phys. Lett. 186(2), 130–136 (1991)
+    let num_state = scf_data.mol.num_state;
+    //let num_basis = scf_data.mol.num_basis; 
+    let d_idx = 0..scf_data.lumo[1];
+    let s_idx = scf_data.lumo[1]..scf_data.lumo[0];
+    let v_idx = scf_data.lumo[0]..num_state;
+    let ds_idx = 0..scf_data.lumo[0];
+    let sv_idx = scf_data.lumo[1]..num_state;
+
+    let fock = [scf_data.hamiltonian[0].to_matrixfull().unwrap(), scf_data.hamiltonian[1].to_matrixfull().unwrap()];
+
+    let idx_list = [ds_idx, v_idx, d_idx, sv_idx];
+    let fock_list = [&fock[0], &fock[0], &fock[1], &fock[1]];
+
+    let mut semi_eigenvectors_list = [
+        MatrixFull::new([num_state, scf_data.lumo[0]], 0.0),
+        MatrixFull::new([num_state, num_state - scf_data.lumo[0]], 0.0),
+        MatrixFull::new([num_state, scf_data.lumo[1]], 0.0),
+        MatrixFull::new([num_state, num_state - scf_data.lumo[1]], 0.0),
+    ];
+
+    for (i, idx) in idx_list.iter().enumerate() {
+        let c_slice = scf_data.eigenvectors[0].to_matrixfullslice_columns(idx.clone());
+        let c = MatrixFull::from_vec(c_slice.size, c_slice.data.to_vec()).unwrap();
+
+        let fock = apply_projection_operator(&c, fock_list[i], &c);
+        let (eigenvectors, _eigenvalues, _) = _dsyevd(&fock, 'V');
+
+        _dgemm_full(&c, 'N', &eigenvectors.unwrap(), 'N', &mut semi_eigenvectors_list[i], 1.0, 0.0);
+    }
+
+    let mut semi_eigenvectors: [MatrixFull<f64>; 2] = [
+        semi_eigenvectors_list[0].clone(),
+        semi_eigenvectors_list[2].clone(),
+        ];
+
+    semi_eigenvectors[0].append_column(&semi_eigenvectors_list[1]); // [ c_ds | c_v ]
+    semi_eigenvectors[1].append_column(&semi_eigenvectors_list[3]); // [ c_d  | c_sv ]
+
+    let mut semi_fock = [MatrixFull::new([num_state, num_state], 0.0), MatrixFull::new([num_state, num_state], 0.0)];
+    let mut semi_eigenvalues = [Vec::new(), Vec::new()];
+
+    for i_spin in 0..2 {
+        let fock_tmp = apply_projection_operator(&semi_eigenvectors[i_spin], &fock[i_spin], &semi_eigenvectors[i_spin]);
+    
+        let diag_terms: Vec<f64> = fock_tmp.get_diagonal_terms().unwrap().into_iter().map(|&x| x).collect();
+        
+        semi_fock[i_spin] = fock_tmp;
+        semi_eigenvalues[i_spin] = diag_terms;
+    }
+    
+    (semi_eigenvectors, semi_eigenvalues, semi_fock, num_state)
 }
 
 pub fn generate_occupation_outside(scf_data: &SCF) -> ([Vec<f64>;2], [usize;2], [usize;2]) {
@@ -4369,7 +4584,11 @@ pub fn generate_density_matrix_outside(scf_data: &SCF) -> Vec<MatrixFull<f64>>{
     (0..spin_channel).into_iter().for_each(|i_spin| {
         let mut dm_s = &mut dm[i_spin];
         *dm_s = MatrixFull::new([num_basis,num_basis],0.0);
-        let eigv_s = &scf_data.eigenvectors[i_spin];
+        let eigv_s = if let SCFType::ROHF = scf_data.scftype {
+            &scf_data.eigenvectors[0]
+        } else {
+            &scf_data.eigenvectors[i_spin]
+        };
         let occ_s =  &scf_data.occupation[i_spin];
 
         let nw =  scf_data.homo[i_spin]+1;
@@ -4537,12 +4756,9 @@ pub fn scf_without_build(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>)
     }
     if scf_converge[0] {
         if scf_data.mol.ctrl.print_level>0 {println!("SCF is converged after {:4} iterations.", scf_records.num_iter-1)};
-        if scf_data.mol.ctrl.print_level>1 {
-            scf_data.formated_eigenvalues((scf_data.homo.iter().max().unwrap()+4).min(scf_data.mol.num_state));
-        }
-        if scf_data.mol.ctrl.print_level>3 {
-            scf_data.formated_eigenvectors();
-        }
+        // Level shift is disabled before the final diagonalization to ensure accurate eigenvalues.
+        // Formatted printing of eigenvalues and eigenvectors is now performed after re-diagonalizing the HF Hamiltonian.
+
         match scf_data.mol.ctrl.occupation_type {
             OCCType::FRAC => {
                 let (occupation, homo, lumo) = check_norm::generate_occupation_integer(&scf_data.mol, &scf_data.scftype);
@@ -4551,9 +4767,20 @@ pub fn scf_without_build(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>)
                 scf_data.lumo = lumo;
                 scf_data.generate_density_matrix();
                 scf_data.generate_hf_hamiltonian(mpi_operator);
+                scf_data.diagonalize_hamiltonian(mpi_operator);
 
             }
-            _ => {}
+            _ => {
+                scf_data.generate_hf_hamiltonian(mpi_operator); 
+                scf_data.diagonalize_hamiltonian(mpi_operator); 
+            }
+        }
+
+        if scf_data.mol.ctrl.print_level>1 {
+            scf_data.formated_eigenvalues((scf_data.homo.iter().max().unwrap()+4).min(scf_data.mol.num_state));
+        }
+        if scf_data.mol.ctrl.print_level>3 {
+            scf_data.formated_eigenvectors();
         }
         // not yet implemented. Just an empty subroutine
     } else {

@@ -6,7 +6,7 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator, IndexedParallelI
 use statrs::statistics::Max;
 use tensors::{MatrixFull, MathMatrix, BasicMatrix, matrix_blas_lapack::_dgemm_full};
 
-use crate::{scf_io::{SCF,scf}, utilities::{self, TimeRecords}};
+use crate::{scf_io::{SCF,scf, SCFType}, utilities::{self, TimeRecords}};
 use crate::constants::{PI, E, INVERSE_THRESHOLD};
 use crate::mpi_io::MPIOperator;
 use tensors::matrix_blas_lapack::{_dgemm,_dsyev};
@@ -28,8 +28,12 @@ pub fn evaluate_spin_response_rayon(scf_data: &SCF, freq: f64) -> anyhow::Result
         for i_spin in 0..spin_channel {
             let mut polar_freq = spin_polar_freq.get_mut(i_spin).unwrap();
             *polar_freq = MatrixFull::new([num_auxbas,num_auxbas], 0.0);
-            let eigenvector = scf_data.eigenvectors.get(i_spin).unwrap();
-            let eigenvalues = scf_data.eigenvalues.get(i_spin).unwrap();
+            let eigenvector = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvectors.get(i_spin).unwrap(),
+                SCFType::ROHF => scf_data.semi_eigenvectors.get(i_spin).unwrap()
+            };
+            let eigenvalues = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvalues.get(i_spin).unwrap(),
+                SCFType::ROHF => scf_data.semi_eigenvalues.get(i_spin).unwrap()
+            };
             let occ_numbers = scf_data.occupation.get(i_spin).unwrap();
             let homo = scf_data.homo.get(i_spin).unwrap().clone();
             let lumo = scf_data.lumo.get(i_spin).unwrap().clone();
@@ -132,8 +136,12 @@ pub fn evaluate_spin_response_serial(scf_data: &SCF, freq: f64) -> anyhow::Resul
         for i_spin in 0..spin_channel {
             let mut polar_freq = spin_polar_freq.get_mut(i_spin).unwrap();
             *polar_freq = MatrixFull::new([num_auxbas,num_auxbas], 0.0);
-            let eigenvector = scf_data.eigenvectors.get(i_spin).unwrap();
-            let eigenvalues = scf_data.eigenvalues.get(i_spin).unwrap();
+            let eigenvector = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvectors.get(i_spin).unwrap(),
+                SCFType::ROHF => scf_data.semi_eigenvectors.get(i_spin).unwrap()
+            }; 
+            let eigenvalues = match scf_data.scftype { SCFType::RHF | SCFType::UHF => scf_data.eigenvalues.get(i_spin).unwrap(),
+                SCFType::ROHF => scf_data.semi_eigenvalues.get(i_spin).unwrap()
+            };
             let occ_numbers = scf_data.occupation.get(i_spin).unwrap();
             let homo = scf_data.homo.get(i_spin).unwrap().clone();
             let lumo = scf_data.lumo.get(i_spin).unwrap().clone();
