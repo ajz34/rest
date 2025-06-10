@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use autocxx::prelude::*;
 use crate::ctrl_io::JobType;
 use crate::constants::{ANG, AU2DEBYE};
-use crate::scf_io::{SCF,scf_without_build};
+use crate::scf_io::{scf_without_build, SCFType, SCF};
 use tensors::{MathMatrix, MatrixFull};
 use crate::{utilities, ri_pt2, ri_rpa, dft, scf_io, post_scf_analysis};
 
@@ -111,6 +111,68 @@ pub fn main_driver() -> anyhow::Result<()> {
     time_mark.count("SCF");
     // perform the SCF and post SCF evaluation for the specified xc method
     performance_essential_calculations(&mut scf_data, &mut time_mark, &mpi_operator);
+
+    let spin_correction_scheme: Option<String> = scf_data.mol.ctrl.spin_correction_scheme.clone();
+    match spin_correction_scheme.as_deref() {
+        Some("yamaguchi") => {
+            println!("==========================================");
+            println!("Now apply the Yamaguchi spin correction.");
+            println!("==========================================");
+            
+            let scf_energy_singlet = scf_data.scf_energy;
+            let tot_energy_singlet = scf_data.energies.get("xdh_energy").unwrap()[0]
+            + scf_data.energies.get("ai_correction").map_or(0.0, |v| v[0]);
+            let [square_spin_singlet, _] = scf_io::evaluate_spin_angular_momentum(&scf_data.density_matrix, &scf_data.ovlp, scf_data.mol.spin_channel, &scf_data.mol.num_elec);
+
+            if scf_data.mol.ctrl.spin == 1.0 && square_spin_singlet >= 1e-3 {
+                time_mark.count_start("spin_correction");
+                println!("Computing the triplet energy...");
+                //scf_data.mol.ctrl.spin = 3.0;
+                //scf_data.mol.ctrl.spin_polarization = false;
+                scf_data.mol.ctrl.guess_mix = false;
+                scf_data.mol.num_elec[1] += 1.0;
+                scf_data.mol.num_elec[2] -= 1.0;
+                scf_data.mol.ctrl.initial_guess = String::from("inherit");
+                scf_data.mol.ctrl.level_shift = Some(0.5);
+                scf_data.scftype = SCFType::ROHF;
+
+                //scf(scf_data.mol, &mpi_operator);
+                initialize_scf(&mut scf_data, &mpi_operator);
+                performance_essential_calculations(&mut scf_data, &mut time_mark, &mpi_operator);
+
+                let scf_energy_triplet = scf_data.scf_energy;
+                let tot_energy_triplet = scf_data.energies.get("xdh_energy").unwrap()[0]
+                + scf_data.energies.get("ai_correction").map_or(0.0, |v| v[0]);
+                let [square_spin_triplet, _] = scf_io::evaluate_spin_angular_momentum(&scf_data.density_matrix, &scf_data.ovlp, scf_data.mol.spin_channel, &scf_data.mol.num_elec);
+
+                let spin_corrction_factor = square_spin_singlet / (square_spin_triplet - square_spin_singlet);
+                let scf_energy_gap = scf_energy_triplet - scf_energy_singlet;
+                let tot_energy_gap = tot_energy_triplet - tot_energy_singlet;
+
+                let scf_energy_corrected = scf_energy_singlet - scf_energy_gap * spin_corrction_factor;
+                let tot_energy_corrected = tot_energy_singlet - tot_energy_gap * spin_corrction_factor;
+                
+                println!("----------------------------------------------------------------------");
+                println!("Report for Yamaguchi spin correction: ");
+                println!("Open-shell singlet: scf_energy = {:18.10} Ha, tot_energy = {:18.10} Ha, <s^2> = {:6.3}.", scf_energy_singlet, tot_energy_singlet, square_spin_singlet);
+                println!("Triplet: scf_energy = {:18.10} Ha, tot_energy = {:18.10} Ha, <s^2> = {:6.3}.", scf_energy_triplet, tot_energy_triplet, square_spin_triplet);
+                println!("Corrected: scf_energy = {:18.10} Ha, tot_energy = {:18.10} Ha.", scf_energy_corrected, tot_energy_corrected);
+                println!("----------------------------------------------------------------------");            
+                time_mark.count("spin_correction");
+            } else {
+                println!("Yamaguchi spin correction skipped: either spin is not 0.0 or contamination is negligible.");
+            }
+        },
+        None => {
+        },
+        Some(other) => {
+            println!(
+                "Warning: Unrecognized spin correction scheme '{}'.\nOnly 'yamaguchi' is currently supported. Spin correction will be skipped.",
+                other
+            );            
+        }
+    }
+
 
     let jobtype = scf_data.mol.ctrl.job_type.clone();
     match jobtype {
@@ -323,7 +385,7 @@ pub fn output_result(scf_data: &scf_io::SCF) {
     let xc_name = scf_data.mol.ctrl.xc.to_lowercase();
     if xc_name.eq("mp2") || xc_name.eq("xyg3") || xc_name.eq("xygjos") || xc_name.eq("r-xdh7") || xc_name.eq("xyg7") || xc_name.eq("zrps") || xc_name.eq("scsrpa") {
         let total_energy = scf_data.energies.get("xdh_energy").unwrap()[0];
-        let post_ai_correction = scf_data.mol.ctrl.post_ai_correction.to_lowercase();
+        //let post_ai_correction = scf_data.mol.ctrl.post_ai_correction.to_lowercase();
         //let ai_correction = if xc_name.eq("r-xdh7") && post_ai_correction.eq("scc15") {
         //    let ai_correction = scf_data.energies.get("ai_correction").unwrap()[0];
         //    println!("AI Correction         : {:18.10} Ha", ai_correction);

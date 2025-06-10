@@ -13,6 +13,7 @@ pub struct ForceStateOccupation {
     ref_index: String,
     prev_state: usize,
     prev_spin: usize,
+    target_spin: usize,
     force_occ: f64,
     curr_state: usize,
     force_check_min: usize,
@@ -24,6 +25,7 @@ impl ForceStateOccupation {
     pub fn init(ref_index: String,
                 prev_state: usize, 
                 prev_spin: usize,
+                target_spin: usize,
                 force_occ: f64, 
                 force_check_min: usize,
                 force_check_max: usize) -> ForceStateOccupation {
@@ -32,6 +34,7 @@ impl ForceStateOccupation {
             ref_index,
             prev_state,
             prev_spin,
+            target_spin,
             force_occ,
             force_check_min,
             force_check_max,
@@ -61,7 +64,7 @@ impl ForceStateOccupation {
 
     pub fn formated_output(&self) -> String {
         let mut output = String::new();
-        output = format!(" Prev. State: {}; Prev. Spin: {}; Force Occ. {:16.8}\n", self.prev_state, self.prev_spin, self.force_occ);
+        output = format!(" Prev. State: {}; Prev. Spin: {}; Target Spin: {}; Force Occ. {:16.8}\n", self.prev_state, self.prev_spin, self.target_spin, self.force_occ);
         output = format!("{} State Window: ({}, {})\n", output, self.force_check_min, self.force_check_max);
         output = format!("{} Curr. State: {} with OVLP of {:16.8}", output, self.curr_state, self.ovlp);
 
@@ -70,7 +73,7 @@ impl ForceStateOccupation {
 
     pub fn formated_output_check(&self) -> String {
         let mut output = String::new();
-        output = format!(" Prev. State: {}; Prev. Spin: {}; Force Occ. {:16.8}\n", self.prev_state, self.prev_spin, self.force_occ);
+        output = format!(" Prev. State: {}; Prev. Spin: {}; Target Spin: {}; Force Occ. {:16.8}\n", self.prev_state, self.prev_spin, self.target_spin, self.force_occ);
         output = format!("{} State Window: ({}, {})\n", output, self.force_check_min, self.force_check_max);
 
         output
@@ -158,7 +161,7 @@ pub fn adapt_occupation_with_force_projection(
                 let mut force_curr = vec![];
 
                 let mut net_force_elec = force_occ.iter()
-                    .filter(|x| x.prev_spin==i_spin)
+                    .filter(|x| x.target_spin==i_spin)
                     .map(|x| {
                         let original_occ = occ_s[x.curr_state];
                         occ_s[x.curr_state] = x.force_occ;
@@ -275,6 +278,7 @@ pub fn determine_force_projection_v02(
                 = ref_eigenvectors_map.get(&i_obj.ref_index).unwrap();
 
             let p_spin = i_obj.prev_spin;
+            let t_spin = i_obj.target_spin;
             let p_state = i_obj.prev_state;
             let c_start = i_obj.force_check_min;
 
@@ -288,7 +292,7 @@ pub fn determine_force_projection_v02(
             });
 
             let r_states = (i_obj.force_check_min..i_obj.force_check_max);
-            eigenvectors[p_spin].iter_columns(r_states).enumerate().for_each(|(il,curr_eigenvector)| {
+            eigenvectors[t_spin].iter_columns(r_states).enumerate().for_each(|(il,curr_eigenvector)| {
                 let cur_state = il + c_start;
                 let mut tmp_vec = vec![0.0;curr_eigenvector.len()];
                 _dgemv(&ovlp_full,curr_eigenvector,&mut tmp_vec,'n',1.0,0.0,1,1);
