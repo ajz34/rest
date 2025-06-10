@@ -54,11 +54,13 @@ rstsr = { version = "0.2.6", default-features = false, features = ["openblas", "
 rstsr-openblas = { version = "0.2.6", features = ["linalg", "openmp"] }
 derive_builder = { version = "0.20" }
 
+dftd3 = { version = "0.1", optional = true }
+dftd4 = { version = "0.1", optional = true }
+
 [build-dependencies]
 autocxx-build = "0.26.0"
 miette = { version = "5", features = ["fancy"]}
 dunce = "1.0.0"
-
 
 [dependencies.pyo3]
 version = "0.21.1"
@@ -74,6 +76,10 @@ features = ["extension-module"]
 [dev-dependencies]
 criterion = "0.4"
 
+[features]
+default = ["dftd3", "dftd4"]
+dftd3 = ["dep:dftd3"]
+dftd4 = ["dep:dftd4"]
 
 [[bench]]
 name = "bench_tensors"
