@@ -29,7 +29,7 @@ pub fn initial_guess(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) {
     // import the initial guess density from a hdf5 file
     } else if scf_data.mol.ctrl.external_init_guess && scf_data.mol.ctrl.guessfile_type.eq(&"hdf5") {
         scf_data.density_matrix = initial_guess_from_hdf5guess(&scf_data.mol);
-        // for DFT methods, it needs the eigenvectors to generate the hamiltoniam. In consequence, we use the hf method to prepare the eigenvectors from the guess dm
+        // for DFT methods, it needs the eigenvectors to generate the hamiltonian. In consequence, we use the hf method to prepare the eigenvectors from the guess dm
         scf_data.generate_hf_hamiltonian_for_guess();
         //scf_data.generate_hf_hamiltonian();
         if scf_data.mol.ctrl.print_level>0 {println!("Initial guess energy: {:16.8}", scf_data.evaluate_hf_total_energy())};
@@ -39,7 +39,7 @@ pub fn initial_guess(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) {
     // import the eigenvalues and eigen vectors from a hdf5 file directly
     } else if scf_data.mol.ctrl.restart && std::path::Path::new(&scf_data.mol.ctrl.chkfile).exists()  {
         if scf_data.mol.ctrl.chkfile_type.eq(&"hdf5") {
-            let (eigenvectors, eigenvalues, is_occupation) = initial_guess_from_hdf5chk(&scf_data.mol);
+            let (eigenvectors, eigenvalues, is_occupation) = initial_guess_from_hdf5chk(&scf_data.mol, &scf_data.scftype);
 
             //=============================
             // for MOM projection
@@ -221,13 +221,21 @@ pub fn initial_guess_from_hdf5guess(mol: &Molecule) -> Vec<MatrixFull<f64>> {
     dm
 }
 
-pub fn initial_guess_from_hdf5chk(mol: &Molecule) -> ([MatrixFull<f64>;2],[Vec<f64>;2],Option<[Vec<f64>;2]>) {
+pub fn initial_guess_from_hdf5chk(mol: &Molecule, scftype: &SCFType) -> ([MatrixFull<f64>;2],[Vec<f64>;2],Option<[Vec<f64>;2]>) {
 
-    initial_guess_from_hdf5chkfile(&mol.ctrl.chkfile, 
-        mol.spin_channel,
-        mol.num_state,
-        mol.num_basis,
-        mol.ctrl.print_level)
+    if let &SCFType::ROHF = scftype {
+        initial_guess_from_hdf5chkfile(&mol.ctrl.chkfile, 
+            1, // only one set of MO_coeff and MO_energy
+            mol.num_state,
+            mol.num_basis,
+            mol.ctrl.print_level)
+    } else {
+        initial_guess_from_hdf5chkfile(&mol.ctrl.chkfile, 
+            mol.spin_channel,
+            mol.num_state,
+            mol.num_basis,
+            mol.ctrl.print_level)
+    }
 }
 
 pub fn initial_guess_from_hdf5chkfile(
@@ -235,7 +243,7 @@ pub fn initial_guess_from_hdf5chkfile(
     spin_channel: usize,
     num_state: usize,
     num_basis: usize,
-    print_level: usize,
+    print_level: usize
 ) -> ([MatrixFull<f64>;2],[Vec<f64>;2], Option<[Vec<f64>;2]>) {
     
     //let mut tmp_scf = SCF::new(&mol);

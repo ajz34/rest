@@ -221,7 +221,7 @@ pub struct InputKeywords {
     /// For multi-node (MPI), this keyword is not fully discussed.
     pub max_memory: Option<f64>,
     pub guess_mix: bool,
-    pub guess_mix_theta_deg: f64,
+    pub guess_mix_theta_deg: Vec<f64>,
     pub spin_correction_scheme: Option<String>
 }
 
@@ -336,7 +336,7 @@ impl InputKeywords {
             pt2_mpi_mode: 0,
             max_memory: None,
             guess_mix: false,
-            guess_mix_theta_deg: 15.0,
+            guess_mix_theta_deg: [15.0, 15.0].to_vec(),
             spin_correction_scheme: None
         }
     }
@@ -1174,11 +1174,21 @@ impl InputKeywords {
                     _ => false,
                 };
                 
+                // for guess_mix_theta_deg: support number, string, or array; default to [15.0, 15.0]
                 tmp_input.guess_mix_theta_deg = match tmp_ctrl.get("guess_mix_theta_deg").unwrap_or(&serde_json::Value::Null) {
-                    serde_json::Value::Number(tmp_num) => tmp_num.as_f64().unwrap_or(15.0),
-                    serde_json::Value::String(tmp_str) => tmp_str.to_lowercase().parse().unwrap_or(15.0),
-                    _ => 15.0,
+                    serde_json::Value::Number(n) => vec![n.as_f64().unwrap_or(15.0); 2],
+                    serde_json::Value::String(s) => {
+                        let val = s.parse::<f64>().unwrap_or(15.0);
+                        vec![val; 2]
+                    }
+                    serde_json::Value::Array(arr) => {
+                        let mut vals = arr.iter().filter_map(|v| v.as_f64()).collect::<Vec<f64>>();
+                        if vals.len() == 1 { vec![vals[0]; 2] }
+                        else { vals.truncate(2); vals }
+                    }
+                    _ => vec![15.0, 15.0],
                 };
+
                 tmp_input.spin_correction_scheme = match tmp_ctrl.get("spin_correction_scheme").unwrap_or(&serde_json::Value::Null) {
                     serde_json::Value::String(tmp_emp) => {Some(tmp_emp.to_lowercase())},
                     other => {None},
@@ -1493,7 +1503,8 @@ pub fn overall_parse_and_report_on_ctrl_geom(ctrl: &mut InputKeywords, geom: &mu
         }
 
         if ctrl.guess_mix {
-            println!("Initial guess mixing enabled (theta = {:.1}°): HOMO-LUMO rotated to induce symmetry breaking",ctrl.guess_mix_theta_deg);
+            println!("Initial guess mixing enabled: HOMO-LUMO rotated with theta = {:.1}° (alpha), {:.1}° (beta) to induce symmetry breaking",
+                ctrl.guess_mix_theta_deg[0], ctrl.guess_mix_theta_deg[1]);
         }
 
     }

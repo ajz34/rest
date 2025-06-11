@@ -20,7 +20,7 @@ pub fn scc15_for_rxdh7(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) -
         println!("There is no electron correlation effect in the system. No strong-correlation correction is needed");
         return 0.0
     }
-
+    
     let start_mo = scf_data.mol.start_mo;
     let num_occu_0 = scf_data.lumo[0];
     let num_occu_1 = if spin_channel ==1 {scf_data.lumo[0]} else {scf_data.lumo[1]};
@@ -61,7 +61,7 @@ pub fn scc15_for_rxdh7(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) -
     let special_radius = evaluate_special_radius_only(scf_data).unwrap();
     let x_max = special_radius[0].max(special_radius[1]);
     let x_min = special_radius[0].min(special_radius[1]);
-
+    
     // collect the hf exchange
     let x_hf = if let Some(x_hf) =scf_data.energies.get("x_hf") {
         x_hf[0]
@@ -76,6 +76,7 @@ pub fn scc15_for_rxdh7(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) -
         vec![[0.0,0.0]]
     };
     let x_pbe = post_xc_energy[0][0]+post_xc_energy[0][1];
+    println!("debug-lyyu, x_pbe: {}", x_pbe);
 
     let dxpbe = (x_pbe-x_hf)/x_hf*100.0f64;
 
@@ -86,6 +87,7 @@ pub fn scc15_for_rxdh7(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>) -
     };
 
     scf_data.energies.insert(String::from("sbge2"), vec![c_sbge2,sbge2_os,sbge2_ss]);
+    println!("debug-lyyu, energy: {:?}", scf_data.energies);
 
     let c_scsrpa = if let Some(scsrpa_c) = scf_data.energies.get("scsrpa") {
         let os1 = scsrpa_c[1];
