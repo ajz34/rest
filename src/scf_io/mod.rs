@@ -4710,10 +4710,13 @@ pub fn scf_without_build(scf_data: &mut SCF, mpi_operator: &Option<MPIOperator>)
             let homo_vec: Vec<f64> = eigenvector_mut.iter_column(homo).cloned().collect();
             let lumo_vec: Vec<f64> = eigenvector_mut.iter_column(lumo).cloned().collect();
     
-            let (mixed_homo_vec, mixed_lumo_vec) = (
+            let (mixed_homo_vec, mixed_lumo_vec) = if i_spin == 0 {(
                 homo_vec.iter().zip(&lumo_vec).map(|(h, l)| cos_theta * h + sin_theta * l).collect::<Vec<f64>>(),
                 homo_vec.iter().zip(&lumo_vec).map(|(h, l)| -sin_theta * h + cos_theta * l).collect::<Vec<f64>>(),
-            );
+            )} else {(
+                homo_vec.iter().zip(&lumo_vec).map(|(h, l)| cos_theta * h - sin_theta * l).collect::<Vec<f64>>(),
+                homo_vec.iter().zip(&lumo_vec).map(|(h, l)| sin_theta * h + cos_theta * l).collect::<Vec<f64>>(),
+            )};
     
             for (val, slot) in mixed_homo_vec.iter().zip(eigenvector_mut.iter_column_mut(homo)) {
                 *slot = *val;
