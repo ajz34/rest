@@ -50,8 +50,8 @@ rest_libcint = {path="../rest_libcint"}
 #liblbfgs = {path="../rust-lbfgs"}
 liblbfgs = "0.1.0"
 sysinfo = "0.33"
-rstsr = { version = "0.2.6", default-features = false, features = ["openblas", "linalg", "rayon", "std", "col_major"] }
-rstsr-openblas = { version = "0.2.6", features = ["linalg", "openmp"] }
+rstsr = { version = "0.3", default-features = false, features = ["openblas", "linalg", "rayon", "std", "col_major"] }
+rstsr-openblas = { version = "0.3", features = ["linalg", "openmp"] }
 derive_builder = { version = "0.20" }
 
 dftd3 = { version = "0.1", optional = true }
