@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use autocxx::prelude::*;
 use crate::ctrl_io::JobType;
 use crate::constants::{ANG, AU2DEBYE};
-use crate::scf_io::{scf_without_build, SCFType, SCF};
+use crate::scf_io::{SCF,scf_without_build};
 use tensors::{MathMatrix, MatrixFull};
 use crate::{utilities, ri_pt2, ri_rpa, dft, scf_io, post_scf_analysis};
 
@@ -112,72 +112,60 @@ pub fn main_driver() -> anyhow::Result<()> {
     // perform the SCF and post SCF evaluation for the specified xc method
     performance_essential_calculations(&mut scf_data, &mut time_mark, &mpi_operator);
 
-    let spin_correction_scheme: Option<String> = scf_data.mol.ctrl.spin_correction_scheme.clone();
-    match spin_correction_scheme.as_deref() {
-        Some("yamaguchi") => {
-            println!("==========================================");
-            println!("Now apply the Yamaguchi spin correction.");
-            println!("==========================================");
-            
-            let scf_energy_singlet = scf_data.scf_energy;
-            let tot_energy_singlet = scf_data.energies.get("xdh_energy").unwrap()[0]
-            + scf_data.energies.get("ai_correction").map_or(0.0, |v| v[0]);
-            let [square_spin_singlet, _] = scf_io::evaluate_spin_angular_momentum(&scf_data.density_matrix, &scf_data.ovlp, scf_data.mol.spin_channel, &scf_data.mol.num_elec);
-
-            if scf_data.mol.ctrl.spin == 1.0 && square_spin_singlet >= 1e-3 {
-                time_mark.count_start("spin_correction");
-                println!("Computing the triplet energy...");
-                //scf_data.mol.ctrl.spin = 3.0;
-                //scf_data.mol.ctrl.spin_polarization = false;
-                scf_data.mol.ctrl.guess_mix = false;
-                scf_data.mol.num_elec[1] += 1.0;
-                scf_data.mol.num_elec[2] -= 1.0;
-                scf_data.mol.ctrl.initial_guess = String::from("inherit");
-                scf_data.mol.ctrl.level_shift = Some(0.5);
-                scf_data.scftype = SCFType::ROHF;
-
-                //scf(scf_data.mol, &mpi_operator);
-                initialize_scf(&mut scf_data, &mpi_operator);
-                performance_essential_calculations(&mut scf_data, &mut time_mark, &mpi_operator);
-
-                let scf_energy_triplet = scf_data.scf_energy;
-                let tot_energy_triplet = scf_data.energies.get("xdh_energy").unwrap()[0]
-                + scf_data.energies.get("ai_correction").map_or(0.0, |v| v[0]);
-                let [square_spin_triplet, _] = scf_io::evaluate_spin_angular_momentum(&scf_data.density_matrix, &scf_data.ovlp, scf_data.mol.spin_channel, &scf_data.mol.num_elec);
-
-                let spin_corrction_factor = square_spin_singlet / (square_spin_triplet - square_spin_singlet);
-                let scf_energy_gap = scf_energy_triplet - scf_energy_singlet;
-                let tot_energy_gap = tot_energy_triplet - tot_energy_singlet;
-
-                let scf_energy_corrected = scf_energy_singlet - scf_energy_gap * spin_corrction_factor;
-                let tot_energy_corrected = tot_energy_singlet - tot_energy_gap * spin_corrction_factor;
-                
-                println!("----------------------------------------------------------------------");
-                println!("Report for Yamaguchi spin correction: ");
-                println!("Open-shell singlet: scf_energy = {:18.10} Ha, tot_energy = {:18.10} Ha, <s^2> = {:6.3}.", scf_energy_singlet, tot_energy_singlet, square_spin_singlet);
-                println!("Triplet: scf_energy = {:18.10} Ha, tot_energy = {:18.10} Ha, <s^2> = {:6.3}.", scf_energy_triplet, tot_energy_triplet, square_spin_triplet);
-                println!("Corrected: scf_energy = {:18.10} Ha, tot_energy = {:18.10} Ha.", scf_energy_corrected, tot_energy_corrected);
-                println!("----------------------------------------------------------------------");            
-                time_mark.count("spin_correction");
-            } else {
-                println!("Yamaguchi spin correction skipped: either spin is not 0.0 or contamination is negligible.");
-            }
-        },
-        None => {
-        },
-        Some(other) => {
-            println!(
-                "Warning: Unrecognized spin correction scheme '{}'.\nOnly 'yamaguchi' is currently supported. Spin correction will be skipped.",
-                other
-            );            
-        }
-    }
-
-
     let jobtype = scf_data.mol.ctrl.job_type.clone();
     match jobtype {
         JobType::Force => {
-            eval_force(&mut scf_data, &mut time_mark, &mpi_operator);
+            time_mark.count_start("force");
+            if scf_data.mol.ctrl.print_level>0 {
+                println!("Force calculation invoked");
+            }
+
+            if scf_data.mol.ctrl.numerical_force {
+                if scf_data.mol.ctrl.print_level > 1 {
+                    println!("Gradient evaluation using numerical differentiation");
+                }
+                let displace = scf_data.mol.ctrl.nforce_displacement / ANG;
+                let (_, nforce) = numerical_force(&scf_data, displace, &mpi_operator);
+                println!("------ Output gradient [a.u.] ------");
+                println!("{}", formated_force(&nforce, &scf_data.mol.geom.elem));
+                println!("------------------------------------");
+            } else {
+                // current available analytical gradients methods:
+                // 1) numerical force
+                // 2) analytical RHF, UHF force
+                // 
+                // disallow dft and post-scf calculations for force
+                if scf_data.mol.ctrl.xc.to_lowercase() != "hf" {
+                    panic!("Gradient calculation is only available for RHF and UHF");
+                }
+
+                if scf_data.mol.ctrl.print_level > 1 {
+                    println!("Gradient evaluation using Analytical differentiation");
+                }
+
+                // Please note that this is only a temporary workaround for RHF/UHF gradients.
+                // Totally refactor the following code if necessary if other types of gradients to be implemented.
+                let grad_data: Box<dyn crate::grad::traits::GradAPI> = {
+                    if !scf_data.mol.ctrl.spin_polarization {
+                        let mut grad_data = crate::grad::rhf::RIRHFGradient::new(&scf_data);
+                        grad_data.calc();
+                        Box::new(grad_data)
+                    } else {
+                        let mut grad_data = crate::grad::uhf::RIUHFGradient::new(&scf_data);
+                        grad_data.calc();
+                        Box::new(grad_data)
+                    }
+                };
+
+                let gradient = grad_data.get_gradient();
+
+                println!("------ Output gradient [a.u.] ------");
+                println!("{}", formated_force(&gradient, &scf_data.mol.geom.elem));
+                println!("------------------------------------");
+            }
+
+            time_mark.count("force");
+            time_mark.report("force");
         },
         JobType::NumDipole => {
             time_mark.count_start("numerical dipole");
@@ -192,77 +180,57 @@ pub fn main_driver() -> anyhow::Result<()> {
             println!("Dipole Moment in DEBYE: {:16.8}, {:16.8}, {:16.8}", dp[0], dp[1], dp[2]);
         },
         JobType::GeomOpt => {
-            let opt_engine = scf_data.mol.ctrl.opt_engine.clone().unwrap_or("lbfgs".to_string());
-            if opt_engine == "lbfgs" {
-                println!("LBFGS geometry optimization invoked");
-                time_mark.count_start("geom_opt");
-                if scf_data.mol.ctrl.print_level>0 {
-                    println!("Geometry optimization invoked");
-                }
-                let displace = 0.0013/ANG;
-
-                //let (energy,nforce) = numerical_force(&scf_data, displace);
-                //println!("Total atomic forces [a.u.]: ");
-                //nforce.formated_output(5, "full");
-                //let mut nnforce = nforce.clone();
-                //nnforce.iter_mut().for_each(|x| *x *= ANG/EV);
-                //println!("Total atomic forces [EV/Ang]: ");
-                //nnforce.formated_output(5, "full");
-
-                let mut position = scf_data.mol.geom.position.iter().map(|x| *x).collect::<Vec<f64>>();
-                lbfgs().minimize(
-                    &mut position, 
-                    |x: &[f64], gx: &mut [f64]| {
-                        scf_data.mol.geom.position = MatrixFull::from_vec([3,x.len()/3], x.to_vec()).unwrap();
-                        if scf_data.mol.ctrl.print_level>0 {
-                            println!("Input geometry in this round is:");
-                            println!("{}", scf_data.mol.geom.formated_geometry());
-                        }
-                        scf_data.mol.ctrl.initial_guess = String::from("inherit");
-                        initialize_scf(&mut scf_data, &mpi_operator);
-                        performance_essential_calculations(&mut scf_data, &mut time_mark, &mpi_operator);
-                        let (energy, nforce) = numerical_force(&scf_data, displace, &mpi_operator);
-                        gx.iter_mut().zip(nforce.iter()).for_each(|(to, from)| {*to = *from});
-
-                        if scf_data.mol.ctrl.print_level>0 {
-                            println!("Output force in this round [a.u.] is:");
-                            println!("{}", formated_force(&nforce, &scf_data.mol.geom.elem));
-                        }
-
-                        Ok(energy)
-                    },
-                    |prgr| {
-                        println!("Iteration {}, Evaluation: {}", &prgr.niter, &prgr.neval);
-                        println!(" xnorm = {}, gnorm = {}, step = {}",
-                            &prgr.xnorm, &prgr.gnorm, &prgr.step
-                        );
-                        false
-                    },
-                );
-                println!("Geometry after relaxation [Ang]:");
-                println!("{}", scf_data.mol.geom.formated_geometry());
-                time_mark.count("geom_opt");
-
-                time_mark.report("geom_opt");
-            } else if opt_engine == "geometric-pyo3" {
-                #[cfg(feature = "geometric-pyo3")]
-                {
-                    println!("Geometric geometry optimization invoked");
-                    time_mark.count_start("geom_opt");
-                    if scf_data.mol.ctrl.print_level>0 {
-                        println!("Geometry optimization invoked");
-                    }
-                    geometric_pyo3_impl::optimize_geometric_pyo3(&mut scf_data, &mut time_mark);
-                    println!("Geometry after relaxation [Ang]:");
-                    println!("{}", scf_data.mol.geom.formated_geometry());
-                    time_mark.count("geom_opt");
-                    time_mark.report("geom_opt");
-                }
-                #[cfg(not(feature = "geometric-pyo3"))]
-                panic!("Geometric-Pyo3 feature is not enabled. Please enable it in Cargo.toml.");
-            } else {
-                panic!("Invalid optimization engine: {}", opt_engine);
+            time_mark.count_start("geom_opt");
+            if scf_data.mol.ctrl.print_level>0 {
+                println!("Geometry optimization invoked");
             }
+            let displace = 0.0013/ANG;
+
+            //let (energy,nforce) = numerical_force(&scf_data, displace);
+            //println!("Total atomic forces [a.u.]: ");
+            //nforce.formated_output(5, "full");
+            //let mut nnforce = nforce.clone();
+            //nnforce.iter_mut().for_each(|x| *x *= ANG/EV);
+            //println!("Total atomic forces [EV/Ang]: ");
+            //nnforce.formated_output(5, "full");
+
+            let mut position = scf_data.mol.geom.position.iter().map(|x| *x).collect::<Vec<f64>>();
+            lbfgs().minimize(
+                &mut position, 
+                |x: &[f64], gx: &mut [f64]| {
+                    //scf_data.mol.geom.position = MatrixFull::from_vec([3,x.len()/3], x.to_vec()).unwrap();
+                    scf_data.mol.geom.geom_update(x);
+                    if scf_data.mol.ctrl.print_level>0 {
+                        println!("Input geometry in this round is:");
+                        println!("{}", scf_data.mol.geom.formated_geometry());
+                    }
+                    scf_data.mol.ctrl.initial_guess = String::from("inherit");
+                    initialize_scf(&mut scf_data, &mpi_operator);
+                    performance_essential_calculations(&mut scf_data, &mut time_mark, &mpi_operator);
+                    let (energy, nforce) = numerical_force(&scf_data, displace, &mpi_operator);
+                    gx.iter_mut().zip(nforce.iter()).for_each(|(to, from)| {*to = *from});
+
+                    if scf_data.mol.ctrl.print_level>0 {
+                        println!("Output force in this round [a.u.] is:");
+                        println!("{}", formated_force(&nforce, &scf_data.mol.geom.elem));
+                    }
+
+                    Ok(energy)
+                },
+                |prgr| {
+                    println!("Iteration {}, Evaluation: {}", &prgr.niter, &prgr.neval);
+                    println!(" xnorm = {}, gnorm = {}, step = {}",
+                        &prgr.xnorm, &prgr.gnorm, &prgr.step
+                    );
+                    false
+                },
+            );
+            println!("Geometry after relaxation [Ang]:");
+            println!("{}", scf_data.mol.geom.formated_geometry());
+            time_mark.count("geom_opt");
+
+            time_mark.report("geom_opt");
+
         },
         _ => {}
     }
@@ -356,7 +324,7 @@ pub fn output_result(scf_data: &scf_io::SCF) {
     let xc_name = scf_data.mol.ctrl.xc.to_lowercase();
     if xc_name.eq("mp2") || xc_name.eq("xyg3") || xc_name.eq("xygjos") || xc_name.eq("r-xdh7") || xc_name.eq("xyg7") || xc_name.eq("zrps") || xc_name.eq("scsrpa") {
         let total_energy = scf_data.energies.get("xdh_energy").unwrap()[0];
-        //let post_ai_correction = scf_data.mol.ctrl.post_ai_correction.to_lowercase();
+        let post_ai_correction = scf_data.mol.ctrl.post_ai_correction.to_lowercase();
         //let ai_correction = if xc_name.eq("r-xdh7") && post_ai_correction.eq("scc15") {
         //    let ai_correction = scf_data.energies.get("ai_correction").unwrap()[0];
         //    println!("AI Correction         : {:18.10} Ha", ai_correction);
@@ -377,6 +345,7 @@ pub fn output_result(scf_data: &scf_io::SCF) {
     }
 
 }
+
 
 /// Perform key SCF and post-SCF calculations
 /// Return the total energy of the specfied xc method
@@ -426,6 +395,21 @@ pub fn performance_essential_calculations(scf_data: &mut SCF, time_mark: &mut ut
     if let Some(scc) = post_ai_correction(scf_data, mpi_operator) {
         scf_data.energies.insert("ai_correction".to_string(), scc);
     }
+
+    //if scf_data.mol.ctrl.spin_correction.eq("&yamacochi") && scf_data.mol.ctrl.spin == 1.0 {
+    //    if scf_data.spin_square < spin_threshold {
+    //        println!("Spin contamination is negligible with <s**2> == {}", );
+    //    } else {
+    //        // set spin to be triplet
+    //        scf_data.mol.ctrl.spin == 3.0;
+    //        // set spin_polarization to be RO
+    //        scf_data.mol.spin_channel == 2;
+    //        scf_data.mol.ctrl.spin_polarization == false;
+    //        scf_data.scftype = SCFType::ROHF;
+
+    //    }
+
+    //}
 
     collect_total_energy(scf_data)
 
@@ -484,161 +468,3 @@ fn initialize_time_record(mol: &Molecule) -> utilities::TimeRecords {
     time_mark
 
 }
-
-/* #region force and geomopt utilities */
-
-fn eval_force(scf_data: &mut SCF, time_mark: &mut utilities::TimeRecords, mpi_operator: &Option<MPIOperator>) -> (f64, MatrixFull<f64>) {
-    // this is a temporary workaround for the force evaluation
-    // currently, this framework could not work for post-scf,
-    // especially that currently there's no class that represents post-scf computation
-
-    time_mark.count_start("force");
-    if scf_data.mol.ctrl.print_level>0 {
-        println!("Force calculation invoked");
-    }
-
-    let (energy, gradient) = if scf_data.mol.ctrl.numerical_force {
-        if scf_data.mol.ctrl.print_level > 1 {
-            println!("Gradient evaluation using numerical differentiation");
-        }
-        let displace = scf_data.mol.ctrl.nforce_displacement / ANG;
-        let (energy, nforce) = numerical_force(&scf_data, displace, &mpi_operator);
-        println!("------ Output gradient [a.u.] ------");
-        println!("{}", formated_force(&nforce, &scf_data.mol.geom.elem));
-        println!("------------------------------------");
-        (energy, nforce)
-    } else {
-        // current available analytical gradients methods:
-        // 1) numerical force
-        // 2) analytical RHF, UHF force
-        // 
-        // disallow dft and post-scf calculations for force
-        if scf_data.mol.ctrl.xc.to_lowercase() != "hf" {
-            panic!("Gradient calculation is only available for RHF and UHF");
-        }
-
-        if scf_data.mol.ctrl.print_level > 1 {
-            println!("Gradient evaluation using Analytical differentiation");
-        }
-
-        // Please note that this is only a temporary workaround for RHF/UHF gradients.
-        // Totally refactor the following code if necessary if other types of gradients to be implemented.
-        let grad_data: Box<dyn crate::grad::traits::GradAPI> = {
-            if !scf_data.mol.ctrl.spin_polarization {
-                let mut grad_data = crate::grad::rhf::RIRHFGradient::new(&scf_data);
-                grad_data.calc();
-                Box::new(grad_data)
-            } else {
-                let mut grad_data = crate::grad::uhf::RIUHFGradient::new(&scf_data);
-                grad_data.calc();
-                Box::new(grad_data)
-            }
-        };
-
-        let gradient = grad_data.get_gradient();
-
-        println!("------ Output gradient [a.u.] ------");
-        println!("{}", formated_force(&gradient, &scf_data.mol.geom.elem));
-        println!("------------------------------------");
-
-        (scf_data.scf_energy, gradient)
-    };
-
-    time_mark.count("force");
-    time_mark.report("force");
-
-    (energy, gradient)
-}
-
-fn eval_force_with_position(scf_data: &mut SCF, time_mark: &mut utilities::TimeRecords, mpi_operator: &Option<MPIOperator>, position: &MatrixFull<f64>) -> (f64, MatrixFull<f64>) {
-    scf_data.mol.geom.position = position.clone();
-    if scf_data.mol.ctrl.print_level>0 {
-        println!("Input geometry in this round is:");
-        println!("{}", scf_data.mol.geom.formated_geometry());
-    }
-    scf_data.mol.ctrl.initial_guess = String::from("inherit");
-    initialize_scf(scf_data, mpi_operator);
-    performance_essential_calculations(scf_data, time_mark, mpi_operator);
-    let (energy, gradient) = eval_force(scf_data, time_mark, mpi_operator);
-    return (energy, gradient);
-}
-
-#[cfg(feature = "geometric-pyo3")]
-mod geometric_pyo3_impl {
-    use super::*;
-    use geometric_pyo3::prelude::*;
-    use pyo3::prelude::*;
-
-    pub(crate) struct GeometricOptDriver<'a> {
-        scf_data: &'a mut SCF,
-        time_mark: &'a mut utilities::TimeRecords,
-    }
-
-    impl GeomDriverAPI for GeometricOptDriver<'_> {
-        fn calc_new(&mut self, coords: &[f64], _dirname: &str) -> GradOutput {
-            let coords = coords.to_vec();
-            let coords = MatrixFull::from_vec([3, coords.len()/3], coords).unwrap();
-            let mpi_operator = None;
-            let (scf_data, time_mark) = (&mut self.scf_data, &mut self.time_mark);
-            let (energy, gradient) = eval_force_with_position(scf_data, time_mark, &mpi_operator, &coords);
-            let gradient = gradient.data();
-            return GradOutput {
-                energy,
-                gradient,
-            }
-        }
-    }
-
-    pub(crate) fn optimize_geometric_pyo3(scf_data: &mut SCF, time_mark: &mut utilities::TimeRecords) -> PyResult<(f64, MatrixFull<f64>)> {
-        pyo3::prepare_freethreaded_python();
-        
-        let elem = scf_data.mol.geom.elem.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
-        const BOHR: f64 = crate::constants::BOHR;
-        let xyz = scf_data.mol.geom.position.data.iter().map(|x| x * BOHR).collect::<Vec<f64>>();
-        let xyzs = vec![xyz];
-        let molecule = init_pyo3_molecule(&elem, &xyzs)?;
-
-        let optimizer_params = r#"
-            convergence_energy   = 1.0e-6  # Eh
-            convergence_grms     = 3.0e-4  # Eh/Bohr
-            convergence_gmax     = 4.5e-4  # Eh/Bohr
-            convergence_drms     = 1.2e-3  # Angstrom
-            convergence_dmax     = 1.8e-3  # Angstrom
-        "#;
-        let input = None;
-        let params = tomlstr2py(optimizer_params)?;
-
-        let pyo3_engine_cls = get_pyo3_engine_cls()?;
-        let geometric_opt_driver = GeometricOptDriver {
-            scf_data,
-            time_mark,
-        };
-        let driver: PyGeomDriver = geometric_opt_driver.into();
-        
-        let (last_energy, last_coords) = Python::with_gil(|py| -> PyResult<(f64, Vec<f64>)> {
-            let custom_engine = pyo3_engine_cls.call1(py, (molecule,))?;
-            custom_engine.call_method1(py, "set_driver", (driver,))?;
-            let res = run_optimization(custom_engine, &params, input)?;
-
-            let last_energy = res
-                .getattr(py, "qm_energies")?
-                .call_method1(py, "__getitem__", (-1,))?
-                .extract::<f64>(py)?;
-
-            let last_coords = res
-                .getattr(py, "xyzs")?
-                .call_method1(py, "__getitem__", (-1,))?
-                .call_method0(py, "flatten")?
-                .call_method0(py, "tolist")?
-                .extract::<Vec<f64>>(py)?;
-
-            Ok((last_energy, last_coords))
-        })?;
-
-        let last_coords = MatrixFull::from_vec([3, last_coords.len()/3], last_coords).unwrap();
-
-        return Ok((last_energy, last_coords));
-    }
-}
-
-/* #endregion */

@@ -284,10 +284,30 @@ impl GeomCell {
     }
 
     pub fn geom_shift(&mut self, atm_idx:usize, vec_xyz:Vec<f64>) {
-        let mut gi = self.get_relax_index(atm_idx).unwrap();
+        // update the atom position in the matrix include only real atoms
         let mut given_atm = &mut self.position[(..,atm_idx)];
         given_atm.iter_mut().zip(vec_xyz.iter()).for_each(|(to, from)| {
             *to += from
+        });
+        // update the atom position in the matrix include both real and ghost atoms
+        let mut given_atm = &mut self.rg_position[(..,atm_idx)];
+        given_atm.iter_mut().zip(vec_xyz.iter()).for_each(|(to, from)| {
+            *to += from
+        });
+    }
+    pub fn geom_update(&mut self, new_position:&[f64]) {
+        if self.position.data.len() != new_position.len() {
+            panic!("The length of new position is not equal to the length of old position");
+        } 
+        // update the position of real atoms in the matrix include only real atoms
+        self.position.iter_mut().zip(new_position.iter()).for_each(|(to, from)| {
+            *to = *from
+        });
+        // update the position of real atoms in the matrix include both real and ghost atoms
+        self.rg_position.iter_columns_mut(0..self.elem.len()).zip(new_position.chunks_exact(3)).for_each(|(to, from)| {
+            to.iter_mut().zip(from.iter()).for_each(|(to, from)| {
+                *to = *from
+            });
         });
     }
 
@@ -396,15 +416,9 @@ impl GeomCell {
     }
     pub fn to_numgrid_io(&self) -> Vec<(f64,f64,f64)> {
         let mut tmp_vec: Vec<(f64,f64,f64)> = vec![];
-        self.position.data.chunks_exact(3).for_each(|value| {
+        self.rg_position.data.chunks_exact(3).for_each(|value| {
             tmp_vec.push((value[0],value[1],value[2]))
         });
-        // add ghost basis positions
-        if self.ghost_bs_elem.len() > 0 {
-            self.ghost_bs_pos.iter_columns_full().for_each(|value| {
-                tmp_vec.push((value[0],value[1],value[2]));
-            });
-        }
         tmp_vec
     }
 

@@ -61,6 +61,8 @@ pub fn initial_guess_from_sad(mol: &Molecule, mpi_operator: &Option<MPIOperator>
             atom_geom.name = ielem.to_string();
             atom_geom.position = MatrixFull::from_vec([3,1], vec![0.000,0.000,0.000]).unwrap();
             atom_geom.elem = vec![ielem.to_string()];
+            atom_geom.rg_elem = atom_geom.elem.clone();
+            atom_geom.rg_position = atom_geom.position.clone();
 
             let mut atom_mol = Molecule::build_native(atom_ctrl,atom_geom, None).unwrap();
 

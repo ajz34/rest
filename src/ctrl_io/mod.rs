@@ -1212,19 +1212,6 @@ impl InputKeywords {
                     _ => panic!("Not recognized type for opt_engine"),
                 };
 
-                // opt_engine: available options: "lbfgs", "geometric-pyo3"; default: "lbfgs"
-                tmp_input.opt_engine = match tmp_ctrl.get("opt_engine").unwrap_or(&serde_json::Value::Null) {
-                    serde_json::Value::String(tmp_str) => { 
-                        let s = tmp_str.to_lowercase();
-                        match s.as_str() {
-                            "lbfgs" | "geometric-pyo3" => Some(s.to_string()),
-                            _ => panic!("Not recognized option for opt_engine: {}", s),
-                        }
-                    },
-                    serde_json::Value::Null => { None },
-                    _ => panic!("Not recognized type for opt_engine"),
-                };
-
                 //===========================================================
                 // Global check of ctrl keywords and futher modification
                 //============================================================
