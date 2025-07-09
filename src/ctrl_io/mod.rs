@@ -1294,6 +1294,9 @@ impl InputKeywords {
                         tmp_geomcell.fix = tmp2;
                         tmp_geomcell.position = tmp3;
                         tmp_geomcell.nfree = tmp4;
+                        // real items in to real + ghost items
+                        tmp_geomcell.rg_elem = tmp_geomcell.elem.clone();
+                        tmp_geomcell.rg_position = tmp_geomcell.position.clone();
                     },
                     serde_json::Value::String(tmp_str) => {
                         let tmp_unit = tmp_geomcell.unit.clone();
@@ -1304,6 +1307,9 @@ impl InputKeywords {
                         tmp_geomcell.fix = tmp2;
                         tmp_geomcell.position = tmp3;
                         tmp_geomcell.nfree = tmp4;
+                        // real items in to real + ghost items
+                        tmp_geomcell.rg_elem = tmp_geomcell.elem.clone();
+                        tmp_geomcell.rg_position = tmp_geomcell.position.clone();
 
                     }
                     other => {
@@ -1331,6 +1337,12 @@ impl InputKeywords {
                         if let Some((bs_elem, bs_pos)) = bs {
                             tmp_geomcell.ghost_bs_elem = bs_elem;
                             tmp_geomcell.ghost_bs_pos = bs_pos;
+                            //println!("{:?}", &tmp_geomcell.ghost_bs_pos);
+                            //println!("{:?}", &tmp_geomcell.rg_position);
+
+                            tmp_geomcell.rg_elem.extend_from_slice(&tmp_geomcell.ghost_bs_elem);
+                            tmp_geomcell.rg_position.append_column(&tmp_geomcell.ghost_bs_pos);
+
                         } else {
                             tmp_geomcell.ghost_bs_elem = vec![];
                             tmp_geomcell.ghost_bs_pos = MatrixFull::empty();

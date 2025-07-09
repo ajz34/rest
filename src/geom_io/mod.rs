@@ -50,6 +50,9 @@ pub struct GeomCell {
     #[pyo3(get,set)]
     pub rest : Vec<(usize,String)>,
     pub ext_field: ExtField<f64>,
+    // both real and ghost atom positions
+    pub rg_position: MatrixFull<f64>,
+    pub rg_elem: Vec<String>,
 }
 
 //impl GeomCell {
@@ -154,6 +157,8 @@ impl GeomCell {
             ghost_ep_path   : vec![],
             ghost_ep_pos    : MatrixFull::empty(),
             ext_field       : ExtField::empty(),
+            rg_elem         : vec![], 
+            rg_position     : MatrixFull::empty(),
         }
     }
     pub fn copy(&mut self, name:String) -> GeomCell {
@@ -394,6 +399,12 @@ impl GeomCell {
         self.position.data.chunks_exact(3).for_each(|value| {
             tmp_vec.push((value[0],value[1],value[2]))
         });
+        // add ghost basis positions
+        if self.ghost_bs_elem.len() > 0 {
+            self.ghost_bs_pos.iter_columns_full().for_each(|value| {
+                tmp_vec.push((value[0],value[1],value[2]));
+            });
+        }
         tmp_vec
     }
 

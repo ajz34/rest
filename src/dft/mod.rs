@@ -2054,6 +2054,7 @@ impl Grids {
                 aop: None, 
                 parallel_balancing,
             };
+            return global_grid;
 
 
         }
@@ -2069,10 +2070,14 @@ impl Grids {
         let rad_grid_method: String = mol.ctrl.rad_grid_method.clone();
 
         // obtain system-dependent parameters
-        let mass_charge = get_mass_charge(&mol.geom.elem);
+        //let mass_charge = get_mass_charge(&mol.geom.elem);
+        //let mut proton_charges: Vec<i32> = mass_charge.iter().map(|value| value.1 as i32).collect();
+        //if mol.geom.ghost_bs_elem.len() > 0 {
+        //    proton_charges.append(&mut vec![1;mol.geom.ghost_bs_elem.len()])
+        //}
+        let mass_charge = get_mass_charge(&mol.geom.rg_elem);
         let proton_charges: Vec<i32> = mass_charge.iter().map(|value| value.1 as i32).collect();
         let center_coordinates_bohr = mol.geom.to_numgrid_io();
-        //mol.fdqc_bas[0].
         let mut alpha_max: Vec<f64> = vec![];
         let mut alpha_min: Vec<HashMap<usize,f64>> = vec![];
         mol.basis4elem.iter().for_each(|value| {
@@ -2219,13 +2224,15 @@ impl Grids {
             } else {
                 RIFull::empty()
             };
-            mol.basis4elem.iter().zip(mol.geom.position.iter_columns_full()).for_each(|(elem, geom)| {
+            //mol.basis4elem.iter().zip(mol.geom.position.iter_columns_full()).for_each(|(elem, geom)| {
+            mol.basis4elem.iter().zip(mol.geom.rg_position.iter_columns_full()).for_each(|(elem, geom)| {
                 let ind_glb_bas = elem.global_index.0;
                 let loc_num_bas = elem.global_index.1;
                 let start = ind_glb_bas;
                 let end = start + loc_num_bas;
-                let mut tmp_geom = [0.0;3];
-                tmp_geom.iter_mut().zip(geom.iter()).for_each(|value| {*value.0 = *value.1});
+                //let mut tmp_geom = [0.0;3];
+                //tmp_geom.iter_mut().zip(geom.iter()).for_each(|value| {*value.0 = *value.1});
+                let tmp_geom:[f64;3] = geom.try_into().unwrap();
                 let tab_den = spheric_gto_value_serial(&self.coordinates[range_grids.clone()], &tmp_geom, elem);
 
                 loc_ao.copy_from_matr(start..end, 0..loc_num_grids, &tab_den, 0..loc_num_bas, 0..loc_num_grids);
@@ -2278,7 +2285,7 @@ impl Grids {
         };
 
         let (sender, receiver) = channel();
-        mol.basis4elem.par_iter().zip(mol.geom.position.par_iter_columns_full()).for_each_with(sender, |s, (elem,geom)| {
+        mol.basis4elem.par_iter().zip(mol.geom.rg_position.par_iter_columns_full()).for_each_with(sender, |s, (elem,geom)| {
             let ind_glb_bas = elem.global_index.0;
             let num_loc_bas = elem.global_index.1;
             //let mut tab_den = MatrixFull::new([num_grids, num_loc_bas],0.0);
@@ -2344,7 +2351,7 @@ impl Grids {
 
         let mut tab_den = MatrixFull::new([num_grids,mol.num_basis], 0.0);
         let mut start:usize = 0;
-        mol.basis4elem.iter().zip(mol.geom.position.iter_columns_full()).for_each(|(elem,geom)| {
+        mol.basis4elem.iter().zip(mol.geom.rg_position.iter_columns_full()).for_each(|(elem,geom)| {
             let mut tmp_geom = [0.0;3];
             tmp_geom.iter_mut().zip(geom.iter()).for_each(|value| {*value.0 = *value.1});
             time_records.count_start("1");
@@ -2369,7 +2376,7 @@ impl Grids {
 
             let mut tab_dev = RIFull::new([mol.num_basis,num_grids,3],0.0);
             let mut start: usize = 0;
-            mol.basis4elem.iter().zip(mol.geom.position.iter_columns_full()).for_each(|(elem,geom)| {
+            mol.basis4elem.iter().zip(mol.geom.rg_position.iter_columns_full()).for_each(|(elem,geom)| {
                 let mut tmp_geom = [0.0;3];
                 tmp_geom.iter_mut().zip(geom.iter()).for_each(|value| {*value.0 = *value.1});
                 time_records.count_start("2");
@@ -3064,7 +3071,7 @@ pub fn numerical_density_v01(grid: &Grids, mol: &Molecule, dm: &mut [MatrixFull<
     grid.coordinates.iter().zip(grid.weights.iter()).for_each(|(r,w)| {
         let mut density_r_sum = [0.0;2];
         let mut density_r:Vec<f64> = vec![];
-        mol.basis4elem.iter().zip(mol.geom.position.iter_columns_full()).for_each(|(elem,geom)| {
+        mol.basis4elem.iter().zip(mol.geom.rg_position.iter_columns_full()).for_each(|(elem,geom)| {
             let mut tmp_geom = [0.0;3];
             tmp_geom.iter_mut().zip(geom.iter()).for_each(|value| {*value.0 = *value.1});
             density_r.extend(gto_value(r, &tmp_geom, elem, &mol.ctrl.basis_type));
@@ -3104,7 +3111,7 @@ pub fn numerical_density_rayon(grid: &Grids, mol: &Molecule, dm: &Vec<MatrixFull
     utilities::omp_set_num_threads_wrapper(1);
 
     let local_basis4elem = mol.basis4elem.clone();
-    let local_position = mol.geom.position.clone();
+    let local_position = mol.geom.rg_position.clone();
     let num_basis = mol.num_basis;
     let basis_type = mol.ctrl.basis_type.clone();
     let (sender,receiver) = channel();
