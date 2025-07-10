@@ -345,11 +345,11 @@ pub fn evaluate_osrpa_correlation_detailed_rayon(scf_data: &SCF) -> anyhow::Resu
     let mut per_omp_num_threads = default_omp_num_threads/num_freq;
     if per_omp_num_threads == 0 {per_omp_num_threads = 1};
     //if default_omp_num_threads%num_freq != 0 {per_omp_num_threads += 1};
-    utilities::omp_set_num_threads_wrapper(per_omp_num_threads);
 
     let (sender,receiver) = channel();
     omega.par_iter().zip(weight.par_iter())
         .for_each_with(sender, |s, (omega,weight)| {
+        utilities::omp_set_num_threads_wrapper(per_omp_num_threads);
         let mut response_freq = evaluate_spin_response_serial(scf_data, *omega).unwrap();
         //if scf_data.mol.spin_channel == 1 {
         //    response_freq *= 2.0;

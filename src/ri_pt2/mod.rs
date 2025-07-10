@@ -395,7 +395,6 @@ pub fn close_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
     // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
     // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
 
     let mut e_mp2_ss = 0.0_f64;
     let mut e_mp2_os = 0.0_f64;
@@ -426,6 +425,7 @@ pub fn close_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
         };
         let (sender, receiver) = channel();
         elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+            utilities::omp_set_num_threads_wrapper(1);
             let mut e_mp2_term_ss = 0.0_f64;
             let mut e_mp2_term_os = 0.0_f64;
 
@@ -509,7 +509,6 @@ pub fn open_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
     // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
     // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
 
     let mut e_mp2_ss = 0.0_f64;
     let mut e_mp2_os = 0.0_f64;
@@ -548,6 +547,7 @@ pub fn open_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
                 };
                 let (sender, receiver) = channel();
                 elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+                    utilities::omp_set_num_threads_wrapper(1);
 
                     let mut e_mp2_term_ss = 0.0_f64;
 
@@ -640,6 +640,7 @@ pub fn open_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
                 };
                 let (sender, receiver) = channel();
                 elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+                    utilities::omp_set_num_threads_wrapper(1);
                     let mut e_mp2_term_os = 0.0_f64;
                     let i_state = i_pair[0];
                     let j_state = i_pair[1];
@@ -1138,7 +1139,6 @@ pub fn close_shell_pt2_rayon_mpi(scf_data: &SCF, mpi_operator: &Option<MPIOperat
 
 pub fn restricted_open_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]> {
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
     
     // Calculate the contribution of singly excited states.
     let mut e_mp2_single_list = [0.0_f64, 0.0_f64];
@@ -1194,6 +1194,8 @@ pub fn restricted_open_shell_pt2_rayon(scf_data: &SCF) -> anyhow::Result<[f64;3]
                 };
                 let (sender, receiver) = channel();
                 elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+
+                    utilities::omp_set_num_threads_wrapper(1);
 
                     let mut e_mp2_term_ss = 0.0_f64;
 

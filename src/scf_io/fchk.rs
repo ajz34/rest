@@ -200,7 +200,7 @@ impl SCF {
                     num_primitiv_vec.push(ibascell.exponents.len());
                     shell_to_atom_map.push(i_atom+1);
                     primitive_exp.extend(ibascell.exponents.iter());
-                    coord_each_shell.extend(self.mol.geom.position.iter_column(i_atom));
+                    coord_each_shell.extend(self.mol.geom.rg_position.iter_column(i_atom));
                 });
             });
         });

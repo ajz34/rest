@@ -641,7 +641,15 @@ impl InputKeywords {
                 };
 
                 tmp_input.empirical_dispersion = match tmp_ctrl.get("empirical_dispersion").unwrap_or(&serde_json::Value::Null) {
-                    serde_json::Value::String(tmp_emp) => {Some(tmp_emp.to_lowercase())},
+                    serde_json::Value::String(tmp_emp) => {
+                        if tmp_emp.to_lowercase() == "none" {
+                           None 
+                        } else if tmp_emp.to_lowercase() == "true" {
+                            Some("d3bj".to_string())
+                        } else {
+                           Some(tmp_emp.to_lowercase())
+                        }
+                    },
                     other => {None},
                 };
                 //let re0 = Regex::new(r"

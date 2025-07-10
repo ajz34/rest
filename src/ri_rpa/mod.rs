@@ -154,7 +154,6 @@ pub fn evaluate_rpa_correlation_rayon(scf_data: &SCF) -> anyhow::Result<f64>  {
     // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
     // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
 
     let mut rpa_c_energy = 0.0_f64;
     let spin_channel = scf_data.mol.spin_channel;
@@ -182,6 +181,9 @@ pub fn evaluate_rpa_correlation_rayon(scf_data: &SCF) -> anyhow::Result<f64>  {
     let (sender,receiver) = channel();
     rayon::prelude::IndexedParallelIterator::zip(omega.par_iter(), weight.par_iter())
         .for_each_with(sender, |s, (omega,weight)| {
+
+        utilities::omp_set_num_threads_wrapper(1);
+
         let mut response_freq = evaluate_response_serial(scf_data, *omega).unwrap();
         if scf_data.mol.spin_channel == 1 {
             response_freq *= 2.0;

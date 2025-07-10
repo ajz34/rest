@@ -145,8 +145,7 @@ extern "C" {
     pub fn openblas_set_num_threads(n: ::std::os::raw::c_int);
     pub fn goto_get_num_threads() -> ::std::os::raw::c_int;
     pub fn goto_set_num_threads(n: ::std::os::raw::c_int);
-    pub fn omp_get_num_threads() -> ::std::os::raw::c_int;
-    //pub fn omp_set_max_threads(n: ::std::os::raw::c_int);
+    pub fn omp_get_max_threads() -> ::std::os::raw::c_int;
     pub fn omp_set_num_threads(n: ::std::os::raw::c_int);
 }
 //extern "C" {
@@ -155,7 +154,8 @@ extern "C" {
 //}
 
 pub fn omp_get_num_threads_wrapper() -> usize {
-    let num_threads_openblas = unsafe{openblas_get_num_threads()} as usize;
+    let num_threads_openblas = unsafe{omp_get_max_threads()} as usize;
+    //let num_threads_openblas = unsafe{openblas_get_num_threads()} as usize;
     //let num_threads_goto = unsafe{goto_get_num_threads()} as usize;
     //println!("debug {:}, {:}", num_threads_goto, num_threads_openblas);
     //num_threads_openblas.max(num_threads_goto)
@@ -169,7 +169,6 @@ pub fn omp_set_num_threads_wrapper(n:usize)  {
         openblas_set_num_threads(n as std::os::raw::c_int);
         goto_set_num_threads(n as std::os::raw::c_int);
         omp_set_num_threads(n as std::os::raw::c_int);
-        //omp_set_max_threads(n as std::os::raw::c_int);
 
     } 
 }

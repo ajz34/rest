@@ -19,7 +19,6 @@ pub fn close_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow
     // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
     // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
 
     let num_auxbas = scf_data.mol.num_auxbas;
     let num_basis = scf_data.mol.num_basis;
@@ -60,6 +59,7 @@ pub fn close_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow
         };
         let (sender, receiver) = channel();
         elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+            utilities::omp_set_num_threads_wrapper(1);
             let mut e_mp2_term_ss = 0.0_f64;
             let mut e_mp2_term_os = 0.0_f64;
 
@@ -356,7 +356,6 @@ pub fn open_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow:
     // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
     // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
 
     let mut e_mp2_ss = 0.0_f64;
     let mut e_mp2_os = 0.0_f64;
@@ -411,6 +410,7 @@ pub fn open_shell_sbge2_detailed_rayon(scf_data: &crate::scf_io::SCF) -> anyhow:
                 };
                 let (sender, receiver) = channel();
                 elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+                    utilities::omp_set_num_threads_wrapper(1);
 
                     let mut e_mp2_term_ss = 0.0_f64;
                     let mut num_eij_iter = 0_usize;
@@ -824,7 +824,7 @@ pub fn close_shell_sbge2_rayon_mpi(scf_data: &crate::scf_io::SCF,mpi_operator:&O
         // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
         // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
         let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-        utilities::omp_set_num_threads_wrapper(1);
+        //utilities::omp_set_num_threads_wrapper(1);
 
         let my_rank = mpi_ix.rank;
         let size = mpi_ix.size;
@@ -1205,10 +1205,8 @@ pub fn open_shell_sbge2_rayon_mpi(scf_data: &crate::scf_io::SCF, mpi_operator:&O
         let screening_factor = 1.0;
         let shifted_factor = 0.0;
 
-        // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
-        // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
         let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-        utilities::omp_set_num_threads_wrapper(1);
+        utilities::omp_set_num_threads_wrapper(default_omp_num_threads);
 
         let mut e_mp2_ss = 0.0_f64;
         let mut e_mp2_os = 0.0_f64;
