@@ -261,6 +261,10 @@ impl DFA4REST {
             [0,263,267]
         } else if lower_name.eq(&"revscan".to_string()) {
             [0,581,582]
+        } else if lower_name.eq(&"mn06-l".to_string()) {
+            [0,203,233]
+        } else if lower_name.eq(&"mn15-l".to_string()) {
+            [0,260,261]
         } else if lower_name.eq(&"r2scan".to_string()) {
             [0,497,498]
         } else if lower_name.eq(&"tpss".to_string()) {
@@ -275,9 +279,17 @@ impl DFA4REST {
             [0,264,267]
         } else if lower_name.eq(&"tpssh".to_string()) {
             [457,0,0]
-        }
-        // for a list of exchange functionals
-        else if lower_name.eq(&"lda_x_slater".to_string()) {
+        } else if lower_name.eq(&"m05-2x".to_string()) {
+            [0,439,238]
+        } else if lower_name.eq(&"m05".to_string()) {
+            [0,438,237]
+        } else if lower_name.eq(&"m06".to_string()) {
+            [0,449,235]
+        } else if lower_name.eq(&"m06-2x".to_string()) {
+            [0,450,236]
+        } else if lower_name.eq(&"mn15".to_string()) {
+            [0,268,269]
+        } else if lower_name.eq(&"lda_x_slater".to_string()) {
             [0,1,0]
         } else {
             for (name, value) in libxc_names_values.iter() {

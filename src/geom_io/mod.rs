@@ -283,6 +283,10 @@ impl GeomCell {
         Ok(gi-1)
     }
 
+    pub fn get_start_index_of_ghost_atoms(&self) -> usize {
+        self.elem.len()
+    }
+
     pub fn geom_shift(&mut self, atm_idx:usize, vec_xyz:Vec<f64>) {
         // update the atom position in the matrix include only real atoms
         let mut given_atm = &mut self.position[(..,atm_idx)];

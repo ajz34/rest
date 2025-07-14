@@ -843,93 +843,76 @@ impl Molecule {
         // now import ecp basis infom.
         let mut ecpbas: Vec<Vec<i32>> = vec![];
         let mut ecp_start = env.len() as i32;
+        let ghost_atm_index = geom.get_start_index_of_ghost_atoms(); 
         basis_total.iter().zip(atm.iter_mut().enumerate()).for_each(|(bas, (atm_index,cur_atm))| {
-            if let (Some(ecp), Some(necp))  = (&bas.ecp_potentials, &bas.ecp_electrons) {
-                // IMPORTANCE. to uncount the electrons in ECP
-                cur_atm[ATM_NUC] -= *necp as i32;
-                cur_atm[ATM_NUC_MOD_OF] = NUC_ECP;
-                num_elec[0] -= *necp as f64;
+            // only act for the ecp of real atoms
+            if atm_index < ghost_atm_index { 
+                if let (Some(ecp), Some(necp))  = (&bas.ecp_potentials, &bas.ecp_electrons) {
+                    // IMPORTANCE. to uncount the electrons in ECP
+                    cur_atm[ATM_NUC] -= *necp as i32;
+                    cur_atm[ATM_NUC_MOD_OF] = NUC_ECP;
+                    num_elec[0] -= *necp as f64;
 
-                // import ecpbas and ecp for env
-                let ecp_ang_start = (ecp.len()-1) as i32;
-                for ecpcell in ecp.iter() {
+                    // import ecpbas and ecp for env
+                    let ecp_ang_start = (ecp.len()-1) as i32;
+                    for ecpcell in ecp.iter() {
 
-                    let angl = ecpcell.angular_momentum[0];
-                    let coeffs = &ecpcell.coefficients;
-                    let gaussian_exponents = &ecpcell.gaussian_exponents;
-                    let num_exp = gaussian_exponents.len() as i32;
-                    let num_coeffs = coeffs.len() as i32;
+                        let angl = ecpcell.angular_momentum[0];
+                        let coeffs = &ecpcell.coefficients;
+                        let gaussian_exponents = &ecpcell.gaussian_exponents;
+                        let num_exp = gaussian_exponents.len() as i32;
+                        let num_coeffs = coeffs.len() as i32;
 
-                    let mut r_exponents_group: HashMap<i32, Vec<usize>> = HashMap::new();
-                    //let r_exponents_list: Vec<i32> = vec![];
+                        let mut r_exponents_group: HashMap<i32, Vec<usize>> = HashMap::new();
+                        //let r_exponents_list: Vec<i32> = vec![];
 
-                    ecpcell.r_exponents.iter().enumerate().for_each(|(index, r_exponents)| {
-                        if r_exponents_group.contains_key(r_exponents) {
-                            r_exponents_group.get_mut(r_exponents).unwrap().push(index);
-                        } else {
-                            r_exponents_group.insert(*r_exponents, vec![index]);
-                        }
-                    });
-                    //let r_exponents = *ecpcell.r_exponents.get(0).unwrap();
-                    //if num_coeffs != num_exp {
-                    //    panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
-                    //}
-
-                    r_exponents_group.iter().for_each(|(r_exponent, index_vec)| {
-                        let mut ecp_exp_start = env.len() as i32;
-                        let num_index_vec = index_vec.len() as i32;
-                        env.extend(gaussian_exponents.iter().enumerate()
-                            .filter(|(index, x)| index_vec.contains(index) )
-                            .map(|(_, x)| x)
-                        );
-                        if num_index_vec > num_exp {
-                            panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
-                        }
-                        coeffs.iter().for_each(|each_coeffs| {
-                            let len_coeffs = each_coeffs.len() as i32;
-                            if len_coeffs != num_exp {
-                                panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
+                        ecpcell.r_exponents.iter().enumerate().for_each(|(index, r_exponents)| {
+                            if r_exponents_group.contains_key(r_exponents) {
+                                r_exponents_group.get_mut(r_exponents).unwrap().push(index);
+                            } else {
+                                r_exponents_group.insert(*r_exponents, vec![index]);
                             }
-                            let mut ecp_coeff_start = env.len() as i32;
-                            let mut tmp_ecpbas_vec: Vec<i32> = vec![atm_index as i32, 
-                                        if angl==ecp_ang_start {-1} else {angl},
-                                        num_index_vec,
-                                        *r_exponent,
-                                        0,
-                                        ecp_exp_start,
-                                        ecp_coeff_start,
-                                        0];
-                            ecpbas.push(tmp_ecpbas_vec);
+                        });
+                        //let r_exponents = *ecpcell.r_exponents.get(0).unwrap();
+                        //if num_coeffs != num_exp {
+                        //    panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
+                        //}
 
-                            env.extend(each_coeffs.iter().enumerate()
-                                .filter(|(index, x)| index_vec.contains(index))
+                        r_exponents_group.iter().for_each(|(r_exponent, index_vec)| {
+                            let mut ecp_exp_start = env.len() as i32;
+                            let num_index_vec = index_vec.len() as i32;
+                            env.extend(gaussian_exponents.iter().enumerate()
+                                .filter(|(index, x)| index_vec.contains(index) )
                                 .map(|(_, x)| x)
                             );
+                            if num_index_vec > num_exp {
+                                panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
+                            }
+                            coeffs.iter().for_each(|each_coeffs| {
+                                let len_coeffs = each_coeffs.len() as i32;
+                                if len_coeffs != num_exp {
+                                    panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
+                                }
+                                let mut ecp_coeff_start = env.len() as i32;
+                                let mut tmp_ecpbas_vec: Vec<i32> = vec![atm_index as i32, 
+                                            if angl==ecp_ang_start {-1} else {angl},
+                                            num_index_vec,
+                                            *r_exponent,
+                                            0,
+                                            ecp_exp_start,
+                                            ecp_coeff_start,
+                                            0];
+                                ecpbas.push(tmp_ecpbas_vec);
+
+                                env.extend(each_coeffs.iter().enumerate()
+                                    .filter(|(index, x)| index_vec.contains(index))
+                                    .map(|(_, x)| x)
+                                );
+                            });
                         });
-                    });
-
-                    //let mut ecp_exp_start = env.len() as i32;
-                    //env.extend(gaussian_exponents.iter());
-
-                    //coeffs.iter().for_each(|each_coeffs| {
-                    //    let len_coeffs = each_coeffs.len() as i32;
-                    //    if len_coeffs != num_exp {
-                    //        panic!("bad ecp basis for the elem of {}", &geom.elem[atm_index]);
-                    //    }
-                    //    let mut ecp_coeff_start = env.len() as i32;
-                    //    let mut tmp_ecpbas_vec: Vec<i32> = vec![atm_index as i32, 
-                    //                if angl==ecp_ang_start {-1} else {angl},
-                    //                num_exp,
-                    //                r_exponents,
-                    //                0,
-                    //                ecp_exp_start,
-                    //                ecp_coeff_start,
-                    //                0];
-                    //    env.extend(each_coeffs.iter());
-                    //    ecpbas.push(tmp_ecpbas_vec);
-                    //});
-                }
-            };
+                    }
+                };
+            }
         });
 
         // determine the electron number in total and in each spin channel.
