@@ -299,18 +299,22 @@ impl GeomCell {
             *to += from
         });
     }
-    pub fn geom_update(&mut self, new_position:&[f64]) {
+    pub fn geom_update(&mut self, new_position:&[f64], unit: GeomUnit) {
+        let factor = match unit {
+            GeomUnit::Angstrom => ANG,
+            GeomUnit::Bohr => 1.0,
+        };
         if self.position.data.len() != new_position.len() {
             panic!("The length of new position is not equal to the length of old position");
         } 
         // update the position of real atoms in the matrix include only real atoms
         self.position.iter_mut().zip(new_position.iter()).for_each(|(to, from)| {
-            *to = *from
+            *to = *from/factor
         });
         // update the position of real atoms in the matrix include both real and ghost atoms
         self.rg_position.iter_columns_mut(0..self.elem.len()).zip(new_position.chunks_exact(3)).for_each(|(to, from)| {
             to.iter_mut().zip(from.iter()).for_each(|(to, from)| {
-                *to = *from
+                *to = *from/factor
             });
         });
     }

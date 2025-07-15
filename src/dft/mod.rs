@@ -279,13 +279,13 @@ impl DFA4REST {
             [0,264,267]
         } else if lower_name.eq(&"tpssh".to_string()) {
             [457,0,0]
-        } else if lower_name.eq(&"m05-2x".to_string()) {
+        } else if lower_name.eq(&"m05-2x".to_string()) || lower_name.eq(&"m052x".to_string()) {
             [0,439,238]
         } else if lower_name.eq(&"m05".to_string()) {
             [0,438,237]
         } else if lower_name.eq(&"m06".to_string()) {
             [0,449,235]
-        } else if lower_name.eq(&"m06-2x".to_string()) {
+        } else if lower_name.eq(&"m06-2x".to_string()) || lower_name.eq(&"m062x".to_string()) {
             [0,450,236]
         } else if lower_name.eq(&"mn15".to_string()) {
             [0,268,269]

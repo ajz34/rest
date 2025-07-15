@@ -256,7 +256,6 @@ fn evaluate_response_rayon(scf_data: &SCF, freq: f64) -> anyhow::Result<MatrixFu
     // In this subroutine, we call the lapack dgemm in a rayon parallel environment.
     // In order to ensure the efficiency, we disable the openmp ability and re-open it in the end of subroutien
     let default_omp_num_threads = utilities::omp_get_num_threads_wrapper();
-    utilities::omp_set_num_threads_wrapper(1);
 
     let num_auxbas = scf_data.mol.num_auxbas;
     let num_basis = scf_data.mol.num_basis;
@@ -288,6 +287,8 @@ fn evaluate_response_rayon(scf_data: &SCF, freq: f64) -> anyhow::Result<MatrixFu
             };
             let (sender,receiver) = channel();
             elec_pair.par_iter().for_each_with(sender,|s,i_pair| {
+
+                utilities::omp_set_num_threads_wrapper(1);
 
                 let mut loc_polar_freq = MatrixFull::new([num_auxbas,num_auxbas],0.0);
                 let j_state = i_pair[0];

@@ -60,7 +60,14 @@ pub fn dftd3_atm(scf_data: &SCF) -> (f64, Option<Vec<f64>>, Option<Vec<f64>>) {
         let periodic = None;
         let d3_model = DFTD3Model::new(&numbers, positions, lattice, periodic);
 
-        let xc = scf_data.mol.ctrl.xc.as_str();
+        //let xc = scf_data.mol.ctrl.xc.as_str();
+        // reshape the name for some DFAs, which cannot be recognized by the dftd library.
+        let mut xc = scf_data.mol.ctrl.xc.as_str();
+        if xc.eq("m05-2x") {
+            xc = "m052x"
+        } else if xc.eq("m06-2x") {
+            xc = "m062x"
+        };
         let version = scf_data.mol.ctrl.empirical_dispersion.clone().unwrap();
         // handle special case: d3 -> d3zero
         let version = if version == "d3" {
