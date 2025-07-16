@@ -17,9 +17,16 @@
   - 基组和辅助基组的申明就是"basis_path"和"auxbas_path"，不要再申明"basis"和"auxbas"
   - 关键词`spin`和`charge`是在`[ctrl]`区，而不是在`[geom]`区
   - 分子结构的关键词是`position`，不能无中生有地用其它的关键词——比如“coord"和"molecule"等
-  - 分子结构`position`的申明使用String，比如"""H 0.0 0.0 0.0\nH 0.75 0.0 0.0"""
+  - 分子结构`position`的申明使用String，比如
+`
+"""
+  H 0.0 0.0 0.0
+  H 0.75 0.0 0.0
+"""
+`
   - 输入卡中不采用'''符号
-  - 请将输入卡中的代表基组和辅助基组的存放文件夹$basis_set_pool自动替换成”/opt/rest_workspace/rest/basis-set-pool"
+  - 请将输入卡中的代表基组和辅助基组的存放文件夹`{basis_set_pool}`自动替换成`/opt/rest_workspace/rest/basis-set-pool`
+  - 若用户没有申明辅助基组，则使用`{basis_set_pool}/def2-SV(P)-JKFIT`
   - 反复迭代比较，直至输入卡一次性全部满足上述要求
   - 输出REST程序的输入卡，使用String的格式，包含换行符号'\n'，并且对'"'符号进行'\"'转译
 
@@ -35,7 +42,7 @@
     1. `opt`: 基于数值力的构型优化。等价设置有：`geometry optimization`, `relax`等
 	1. `force`: 计算当前结构下的受力。等价设置有：`gradient`
 	1. `numerical dipole`: 计算数值偶极。等价设置有：`numdipole`
-- `opt_engine`: 取值为String类型。构型优化引擎。可选项有：LBFGS（缺省）、geometric-pyo3
+- `opt_engine`: 取值为String类型。构型优化引擎。可选项有：`LBFGS`（缺省）、`geometric-pyo3`
 - `numeric_force`: 取值为布尔类型。是否计算数值力。缺省为false
 - `nforce_displacement`:　取值为f64类型。数值力计算中的结构位移值，缺省是0.0013 Bohr
 
@@ -59,8 +66,8 @@
     3. 动能密度泛函近似：SCAN、M06-L、MN15-L、TPSS
     4. 杂化泛函近似：B3LYP、X3LYP、PBE0、M05、M05-2X、M06、M06-2X、SCAN0、MN15
     5. 第五阶泛函近似：XYG3、XYGJOS、XYG7、sBGE2、ZRPS、scsRPA、R-xDH7
-    - HF、LDA、BLYP、PBE、B3LYP、PBE0是自洽场计算方法，如果用户未申明具体基组，则使用def2-TZVPP基组 (`basis_path = $basis_set_pool/def2-TZVPP`)
-    - MP2、XYG3、XYGJOS、XYG7、sBGE2、ZRPS、scsRPA、R-xDH7为后自洽场计算方法。如果用户未申明具体基组，则使用def2-QZVPP基组 (`basis_path = $basis_set_pool/def2-QZVPP`)
+    - HF、LDA、BLYP、PBE、B3LYP、PBE0是自洽场计算方法，若用户未申明具体基组，则使用def2-TZVPP基组 (`basis_path = {basis_set_pool}/def2-TZVPP`)
+    - MP2、XYG3、XYGJOS、XYG7、sBGE2、ZRPS、scsRPA、R-xDH7为后自洽场计算方法。若用户未申明具体基组，则使用def2-QZVPP基组 (`basis_path = {basis_set_pool}/def2-QZVPP`)
 - `empirical_dispersion`:　取之为String。针对低级别密度泛涵方法（包括LDA、BLYP、PBE、B3LYP、PBE0等）的经验色散校正方法。目前支持D3, D3BJ和D4。对于XYG3型双杂化泛涵比如XYG3、XYG7、XYGJOS、SCSRPA、R-xDH7、RPA等不需要经验色散校正
 - `post_ai_correction`：取值为String。AI辅助的校正方法。目前仅支持SCC15，并只能和R-xDH7重整化双杂化泛涵方法相匹配。相关文章见：Wang, Y.; Lin, Z.; Ouyang, R.; Jiang, B.; Zhang, I. Y.; Xu, X. Toward Efficient and Unified Treatment of Static and Dynamic Correlations in Generalized Kohn–Sham Density Functional Theory. JACS Au 2024, 4 (8), 3205–3216. https://doi.org/10.1021/jacsau.4c00488
 - `post_xc`：取值为Vec\<String\>。采用自洽收敛的轨道和密度，进行不同的交换－关联泛函(xc)的计算。允许的方法包括REST支持的"xc"方法
@@ -81,7 +88,7 @@
 当然，REST程序对于基组的使用是高度自由和自定义的。你可以根据具体的计算任务，从基组网站上下载、修改或者混合使用不同的基组。你所需要做是：
     1. 在`{basis_set_pool}`基组文件夹下创建一个新的基组文件夹。比如你想使用混合基组，并取名这个混合基组名称为mix_bs_01。则需要创建一个基组文件夹为：`mkdir {basis_set_pool}/mix_bs_01`
     2. 然后将这些基组以”元素名称.json”放置在`{basis_set_pool}/mix_bs_01`的文件夹内
-    3. 在输入卡内申明`basis_path = $basis_set_pool/mix_bs_01`
+    3. 在输入卡内申明`basis_path = {basis_set_pool}/mix_bs_01`
 - `auxbas_path`: 取值为String类型，无缺省值。计算所使用的辅助基组所在位置。辅助基组通常与常规基组放置在相同的文件夹下(`{basis_set_pool}`)。使用最广泛的辅助基组为`def2-SV(P)-JKFIT`，则申明方式应为`auxbas_path={basis_set_pool}/def2-SV(P)-JKFIT`。**注意：辅助基组信息高度依赖于具体的计算体系，因此没有缺省值。如果使用RI-V的近似方法，则必须在输入卡中声明**
 当然，REST程序对于辅助基组的使用是高度自由和自定义的。你可以根据具体的计算任务，从基组网站上下载、修改或者混合使用不同的基组。你所需要做是：
     1. 在`{basis_set_pool}`基组文件夹下创建一个新的基组文件夹。比如你想使用混合基组，并取名这个混合基组名称为mix_auxbs_01。则需要创建一个基组文件夹为：`mkdir {basis_set_pool}/mix_auxbs_01`
@@ -117,7 +124,11 @@
      - `force_occ`：取值为f64。设置上述定位的轨道在约束DFT（C-DFT）计算中的取值
      - `force_check_min`和`force_check_max`：取值为i32。在C-DFT的自洽计算中设置搜索窗口，仅从这个窗口中寻找和prev_state/prev_spin最相似的轨道
 ## 后自洽场计算相关关键词（Keyword）
-- `frozen_core_postscf`: 取值为i32。对于传统密度泛函方法，本参数设置不起作用。对于后自洽场方法，需要考虑激发组态的贡献。由于原子的内层电子（core electrons）通常不参与化学成键，我们可以采用冻芯近似（frozen core approximation）。在REST程序中，对于给定的原子，若开放n个价层，则本参数设置为n。取值的个位对应于主族元素开放的价层个数，而十位对应于过渡金属开放的价层个数
+- `frozen_core_postscf`: 取值为i32，且小于100的两位数。对于后自洽场方法，包括MP2和第五阶密度泛函近似，需要考虑激发组态的贡献。由于原子的内层电子（core electrons）通常不参与化学成键，我们可以采用冻芯近似（frozen core approximation），缺省值为`0`，代表不使用冻心近似
+	- 当设置为一位数`n`的时候，不区分原子是主族元素还是过渡金属，冻心近似下只考虑涉及`n`个最外价层的电子激发组态
+	- 当设置为两位数`mn`的时候，则区分原子类型，对于主族元素考虑`n`个价层上的电子激发（个位上的数），而对过渡金属则考虑`m`个价层（十位上的数）
+	- 这里我们以主量子数来定义价层，比如`2s2p`是一个价层，而`3s3p3d`为一个价层
+	- **对于传统密度泛函方法，本参数设置不起作用**
 - `frequency_points`：取值为i32。对于RPA型的相关能计算方法，比如RPA、SCSRPA和R-xDH7等，需要对频率空间进行数值积分。这里设置频率积分的格点数目。缺省为20
 - `freq_grid_type`：取值为i32。对于RPA型相关能计算方法做格点化准备:
      - `0`: 代表使用modified Gauss-Legendre格点。缺省为0
